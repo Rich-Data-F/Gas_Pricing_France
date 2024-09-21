@@ -1,0 +1,12 @@
+pandas
+duckdb
+requests
+geopy
+streamlit
+folium
+streamlit
+streamlit_folium
+lxml
+numpy
+os
+datetime
