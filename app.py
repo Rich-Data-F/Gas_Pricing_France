@@ -1,3 +1,5 @@
+from pricing_definitions import *
+
 import streamlit as st
 import pandas as pd
 import folium
@@ -7,12 +9,40 @@ from geopy.exc import GeocoderServiceError, GeocoderTimedOut
 import os
 from datetime import datetime
 import requests
+import sys
+import zipfile
+import io
+import requests
 
-from pricing_definitions import *
+#sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 st.set_page_config(page_title="Gas Price Finder", page_icon="⛽")
-
 st.title("Gas Price Finder in France")
+
+folder_path='./Data/'
+file_name='PrixCarburants_instantane.xml'
+
+file_info = get_file_info(folder_path, file_name)
+# Parse the date and time strings back into a datetime object
+update_datetime = datetime.strptime(f"{file_info['creation_date']} {file_info['creation_time']}", "%Y-%m-%d %H:%M:%S")
+# Format it as desired
+formatted_datetime = update_datetime.strftime("%d %B %Y à %Hh%M")
+st.write(f"Les données de prix de carburant ont été mises à jour le {formatted_datetime}. Pressez le bouton ci-dessous pour une mise à jour")
+
+refresh=st.button(help='Some 30 seconds will be required to get refreshed data', label="Get refreshed data")
+
+if refresh:
+    # Step 1: Download the ZIP file from the HTML address
+    url = "https://donnees.roulez-eco.fr/opendata/instantane"
+    response = requests.get(url)
+    zip_file = zipfile.ZipFile(io.BytesIO(response.content))
+    # Step 2: Extract the XML file from the ZIP
+    xml_content = zip_file.read('PrixCarburants_instantane.xml')
+    # Step 3: Read the extracted XML content using pd.read_xml()
+    df = pd.read_xml(io.BytesIO(xml_content), xpath='.//pdv',
+                    encoding='ISO-8859-1',
+                    dtype=str)
+
 
 # Input fields for address
 street = st.text_input("Street Address", "15, rue de Vaugirard")
@@ -22,20 +52,6 @@ country = st.text_input("Country", "France", disabled=True)
 
 # Combine address components
 user_address = f"{street}, {zipcode}, {city}, {country}"
-
-# Function to get coordinates
-def get_coordinates(address):
-    geolocator = Nominatim(user_agent="gas_price_finder")
-    try:
-        location = geolocator.geocode(address)
-        if location:
-            return location.latitude, location.longitude
-        else:
-            st.error(f"Address not found: {address}")
-            return None
-    except (GeocoderServiceError, GeocoderTimedOut) as e:
-        st.error(f"Error occurred: {e}")
-        return None
 
 # Get user coordinates
 if st.button("Find Gas Stations"):

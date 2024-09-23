@@ -9,8 +9,30 @@ from geopy.exc import GeocoderServiceError, GeocoderTimedOut
 import numpy as np
 import os
 from datetime import datetime
+import locale
+import zipfile
+import io
+import requests
 
 from pricing_definitions import *
+
+folder_path='./Data/'
+file_name='PrixCarburants_instantane.xml'
+get_file_info(folder_path, file_name)
+import locale
+# Set locale to French
+try:
+    locale.setlocale(locale.LC_TIME, 'fr_FR.UTF-8')
+except locale.Error:
+    locale.setlocale(locale.LC_TIME, 'C')  # or 'en_US.UTF-8' if available
+#Combine the date and time strings
+
+file_info = get_file_info(folder_path, file_name)
+# Parse the date and time strings back into a datetime object
+update_datetime = datetime.strptime(f"{file_info['creation_date']} {file_info['creation_time']}", "%Y-%m-%d %H:%M:%S")
+# Format it as desired
+formatted_datetime = update_datetime.strftime("%d %B %Y à %Hh%M")
+print(f"Les données de prix de carburant ont été mises à jour le {formatted_datetime}. Pressez le bouton ci-dessous pour une mise à jour")
 
 df=pd.read_xml('Data/PrixCarburants_instantane.xml', 
                  xpath='.//pdv',

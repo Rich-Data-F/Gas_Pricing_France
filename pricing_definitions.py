@@ -9,7 +9,25 @@ from geopy.exc import GeocoderServiceError, GeocoderTimedOut
 import numpy as np
 import os
 from datetime import datetime
+import locale
 
+def get_file_info(folder_path, file_name):
+    file_path = os.path.join(folder_path, file_name)
+    # Get file creation time (upload time)
+    creation_time = os.path.getctime(file_path)
+    creation_datetime = datetime.fromtimestamp(creation_time)
+    print(creation_datetime)
+    # Get file modification time
+    modification_time = os.path.getmtime(file_path)
+    modification_datetime = datetime.fromtimestamp(modification_time)
+    print(modification_datetime)
+    return {
+        "file_name": file_name,
+        "creation_date": creation_datetime.strftime("%Y-%m-%d"),
+        "creation_time": creation_datetime.strftime("%H:%M:%S"),
+        "modification_date": modification_datetime.strftime("%Y-%m-%d"),
+        "modification_time": modification_datetime.strftime("%H:%M:%S"),
+    }
 
 '''def parse_xml(file_path):
     tree = ET.parse(file_path)
@@ -85,6 +103,20 @@ def process_gas_prices(df):
     df = df.sort_values('last_updated', ascending=False)
     return df
 
+# Function to get coordinates
+def get_coordinates(address):
+    geolocator = Nominatim(user_agent="gas_price_finder")
+    try:
+        location = geolocator.geocode(address)
+        if location:
+            return location.latitude, location.longitude
+        else:
+            st.error(f"Address not found: {address}")
+            return None
+    except (GeocoderServiceError, GeocoderTimedOut) as e:
+        st.error(f"Error occurred: {e}")
+        return None
+
 def get_lat_long(address):
     default_lat, default_lon = 48.856614, 2.352222  # Hotel de Ville, Paris
     geolocator = Nominatim(user_agent="my_app")
@@ -107,7 +139,6 @@ def get_lat_long(address):
             else:
                 raise GeocodingError(f"Geocoding failed after {max_attempts} attempts") from e
     raise GeocodingError("Unexpected error in geocoding")
-
 
 # collection of the origin address from the user
 def prompt_for_address():
@@ -212,4 +243,3 @@ def haversine_distance(lat1, lon1, lat2, lon2):
     c = 2 * np.arctan2(np.sqrt(a), np.sqrt(1-a))
     distance = R * c
     return distance
-
