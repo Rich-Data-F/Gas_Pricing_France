@@ -1,13 +1,10 @@
+xt
 pandas
 duckdb
 requests
 geopy
 streamlit
 folium
-streamlit
-streamlit_folium
+streamlit-folium
 lxml
 numpy
-datetime
-zip
-requests
