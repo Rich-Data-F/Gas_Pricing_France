@@ -8,5 +8,6 @@ streamlit
 streamlit_folium
 lxml
 numpy
-os
 datetime
+zip
+requests

@@ -6,6 +6,7 @@ from geopy.geocoders import Nominatim
 from geopy.exc import GeocoderServiceError, GeocoderTimedOut
 import os
 from datetime import datetime
+import requests
 
 from pricing_definitions import *
 
