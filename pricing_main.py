@@ -128,7 +128,7 @@ os.makedirs(output_dir, exist_ok=True)
 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 # Save the map as an HTML file
 map_filename = f'map_{timestamp}.html'
-map_path = os.path.join(output_dir, map_filename)
+st.session_state.map_path = os.path.join(output_dir, map_filename)
 m.save(map_path)
 print(f"Map saved to: {map_path}")
 
@@ -180,6 +180,7 @@ closest_stations_path = os.path.join(output_dir, closest_stations_filename)
 closest_stations.to_csv(closest_stations_path, index=False)
 print(f"Closest stations DataFrame saved to: {closest_stations_path}")
 
+st.components.v1.html(st.session_state(map_path))
 # Display the results (assuming you're using Streamlit)
 #st.table(closest_stations[['name', 'distance', f'price_{selected_gas_type}', 'last_update']])
 

@@ -8,7 +8,7 @@ from streamlit_folium import folium_static
 from geopy.exc import GeocoderServiceError, GeocoderTimedOut
 import numpy as np
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 import locale
 
 def get_file_info(folder_path, file_name):
@@ -28,24 +28,6 @@ def get_file_info(folder_path, file_name):
         "modification_date": modification_datetime.strftime("%Y-%m-%d"),
         "modification_time": modification_datetime.strftime("%H:%M:%S"),
     }
-
-'''def parse_xml(file_path):
-    tree = ET.parse(file_path)
-    root = tree.getroot()
-    data = []
-    for pdv in root.findall('pdv'):
-        row = pdv.attrib.copy()
-        for child in pdv:
-            if child.tag == 'services':
-                row['services'] = ', '.join([service.text for service in child.findall('service')])
-            elif child.tag == 'prix':
-                prix_info = child.attrib.copy()
-                prix_info['valeur'] = child.get('valeur')
-                row[f"prix_{prix_info['nom']}"] = prix_info
-            else:
-                row[child.tag] = child.text
-        data.append(row)
-    return pd.DataFrame(data)'''
 
 def parse_xml(file_path):
     tree = ET.parse(file_path)
@@ -204,6 +186,12 @@ def filter_gas_stations_df(df, relevant_depts):
     filtered_df.head() #debugging
     return filtered_df
 
+def format_timedelta(td):
+    total_seconds = int(td.total_seconds())
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, _ = divmod(remainder, 60)
+    return f"{hours:02d}:{minutes:02d}"
+
 def create_map(user_address, user_latitude, user_longitude, filtered_df, selected_gas_type):
     m = folium.Map(location=[user_latitude, user_longitude], zoom_start=11)  
     folium.Marker(
@@ -214,6 +202,8 @@ def create_map(user_address, user_latitude, user_longitude, filtered_df, selecte
     for _, station in filtered_df.iterrows():
         # Use .get() method to avoid KeyError
         name = station.get('id', station.get('id', 'Unknown Station'))
+        ville = station.get('ville','N/A')
+        adresse = station.get('adresse','N/A')
         price = station.get(f'{selected_gas_type}_price', 'N/A')
         last_update = station.get('last_updated', 'Unknown')
         popup_html = f"""
@@ -221,16 +211,59 @@ def create_map(user_address, user_latitude, user_longitude, filtered_df, selecte
         {selected_gas_type}: {price} €<br>
         Last updated: {last_update}
         """
+        
+        # Create a label for the marker
+        label = f"adresse: {adresse}, ville: {ville}<br>Price: f{price:.2f} €"
+    
         # Use .get() method for latitude and longitude as well
         lat = station.get('latitude', station.get('lat'))
         lon = station.get('longitude', station.get('lon'))
         if lat is not None and lon is not None:
             folium.Marker(
                 [lat, lon],
-                popup=popup_html,
+                popup=popup_html, 
+                tooltip=label,
                 icon=folium.Icon(color='blue', icon='gas-pump', prefix='fa')
-            ).add_to(m)    
+            ).add_to(m)            
     return m
+
+def create_super_filter_map(user_address, user_latitude, user_longitude, super_filters, selected_gas_type):
+    m = folium.Map(location=[user_latitude, user_longitude], zoom_start=10)
+    
+    # Add marker for user location
+    folium.Marker(
+        [user_latitude, user_longitude],
+        popup=user_address,
+        icon=folium.Icon(color='red', icon='home')
+    ).add_to(m)
+
+    # Add markers for gas stations
+    for _, row in super_filters.iterrows(): 
+        # Determine the relevant price based on the selected gas type
+        relevant_price = row[f'{selected_gas_type}_price']
+        
+        # Create a label for the marker
+        label = f"{row['adresse']}, {row['ville']}<br>Price: {relevant_price:.2f} €<br>Total Cost: {row['total_cost']:.2f} €"
+        
+        # Create a popup with detailed information
+        popup_html = f"""
+        <b>{row['adresse']}, {row['ville']}</b><br>
+        Price: {relevant_price:.2f} €<br>
+        Distance: {row['distance']:.2f} km<br>
+        Route Distance: {row['adts']:.2f} km<br>
+        Cost to Reach: {row['cost_to_reach']:.2f} €<br>
+        Time to Reach: {row['time_to_reach']}<br>
+        Total Cost: {row['total_cost']:.2f} €
+        """
+        
+        folium.Marker(
+            [row['latitude'], row['longitude']],
+            popup=folium.Popup(popup_html, max_width=300),
+            tooltip=label,  # This will show up on hover
+            icon=folium.Icon(color='green', icon='gas-pump', prefix='fa')
+        ).add_to(m)
+    return m
+
 
 def haversine_distance(lat1, lon1, lat2, lon2):
     R = 6371  # Earth's radius in kilometers
