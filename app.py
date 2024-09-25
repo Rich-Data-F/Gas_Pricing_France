@@ -83,7 +83,7 @@ consumption = st.sidebar.number_input("Vehicle Consumption (L/100km)", value=6.0
 tank_volume = st.sidebar.slider("Gas Tank Total Volume (L)", min_value=5, max_value=80, value=45, step=1)
 
 # g. Current gas tank volume left (fraction)
-tank_left = st.sidebar.slider("Current Gas Tank Volume Left", min_value=0.1, max_value=1.0, value=0.25, step=0.05)
+tank_left = st.sidebar.slider("Current Gas Tank Volume Left (fraction)", min_value=0.1, max_value=1.0, value=0.25, step=0.05)
 
 # h. radius search size in kms
 radius_search = st.sidebar.slider("Size of radius search (km)", min_value=1, max_value=(int(autonomy)-5), value=50, step=2)
@@ -91,7 +91,7 @@ radius_search = st.sidebar.slider("Size of radius search (km)", min_value=1, max
 st.sidebar.write("The recommendation is limited to the 40 closest stations to the selected address, which may prevail on the above-defined distance and criteria")
 
 # Main content
-st.title("Gas Price Finder in France")
+st.title("Gas Station and Best Price locator")
 
 folder_path='./Data/'
 file_name='PrixCarburants_instantane.xml'
@@ -133,11 +133,11 @@ if refresh:
 # Address inputs
 col1, col2, col3 = st.columns(3)
 with col1:
-    street = st.text_input("Street Address", "rue de Dinan")
+    street = st.text_input("Street Address", "rue des clés")
 with col2:
-    city = st.text_input("City", "Cancale")
+    city = st.text_input("City", "Thônes")
 with col3:
-    zipcode = st.text_input("Zipcode or at least department number", "35")
+    zipcode = st.text_input("Zipcode or at least department number", "74")
 
 #country = st.text_input("Country", "France", disabled=True)
 country = "France"
@@ -195,7 +195,7 @@ if st.button("Find Gas Stations"):
             closest_stations = filtered_df.nsmallest(100, 'distance')
             # Create map
             m = create_map(user_address, user_latitude, user_longitude, filtered_df, selected_gas_type)
-            folium_static(m, width=1500, height=1200)
+            folium_static(m, width=1200, height=800)
             output_dir = 'Data/user_specific'
             os.makedirs(output_dir, exist_ok=True)
             # Generate a timestamp for a unique filename
