@@ -1,25 +1,21 @@
-from pricing_definitions import *
-
 import streamlit as st
+import sys
 import pandas as pd
 import folium
 from streamlit_folium import folium_static
 from geopy.geocoders import Nominatim
 from geopy.exc import GeocoderServiceError, GeocoderTimedOut
-from geopy.distance import geodesic
-import osmnx as ox
-import networkx as nx
 import os
 from datetime import datetime, timedelta
 import requests
-import sys
 import zipfile
 import io
-import requests
 import logging
 import openrouteservice as ors
+from dotenv import load_dotenv
+from cryptography.fernet import Fernet
 
-#import taxicab as tc
+from pricing_definitions import *
 
 # initialisation of session state entities
 if 'filtered_df' not in st.session_state:
@@ -32,31 +28,52 @@ map_path=''
 if map_path not in st.session_state:
     st.session_state.map_path=''
 
-#sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+st.set_page_config(page_title="Gas Station and Best Price locator", page_icon="⛽", layout="wide")
 
-st.set_page_config(page_title="Gas Price Finder", page_icon="⛽", layout="wide")
+st.markdown("""
+    <style>
+    .stbutton > button {
+        background-color:  #FFD580;
+        color: white;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+st.markdown("""
+    <style>
+    .stButton > button {
+        background-color: #4CAF50;
+        color: white;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+# Get the API key
+api_key = get_api_key()
+
+#sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Sidebar for user inputs
 st.sidebar.title("Gas Station Finder Options")
 
 # 1. Gas type selection (mandatory)
-gas_types = ['Gazole', 'SP95', 'SP98', 'GPLc']  # Add all available gas types
+gas_types = ['Gazole', 'SP95', 'SP98', 'GPLc', 'E10', 'E85']  # Add all available gas types
 selected_gas_type = st.sidebar.selectbox("Select Gas Type", gas_types, index=gas_types.index('Gazole'))
 
 # Optional inputs
 st.sidebar.subheader("Optional Filters")
 
 # a. Outstanding autonomy
-autonomy = st.sidebar.slider("Outstanding Autonomy (km)", min_value=5, max_value=125, value=45, step=1)
+autonomy = st.sidebar.slider("Remaining Autonomy (km)", min_value=5, max_value=125, value=45, step=1)
 
 # b. Toilets required
-toilets_required = st.sidebar.radio("Toilets Required", [True, False], index=0)
+#toilets_required = st.sidebar.radio("Toilets Required", [True, False], index=0)
 
 # c. Spare time to save money
-spare_time = st.sidebar.radio("Willing to spend time to save money?", ["No", "Yes"], index=0)
+#spare_time = st.sidebar.radio("Willing to spend time to save money?", ['Yes', 'No'], index=0)
 
 # d. Autoroutes allowed
-autoroutes_allowed = st.sidebar.radio("Autoroutes Allowed", ["Yes", "No"], index=0)
+#autoroutes_allowed = st.sidebar.radio("Autoroutes Allowed", ["Yes", "No"], index=0)
 
 # e. Vehicle consumption
 consumption = st.sidebar.number_input("Vehicle Consumption (L/100km)", value=6.0, min_value=0.5, step=0.5)
@@ -64,11 +81,13 @@ consumption = st.sidebar.number_input("Vehicle Consumption (L/100km)", value=6.0
 # f. Gas tank total volume
 tank_volume = st.sidebar.slider("Gas Tank Total Volume (L)", min_value=5, max_value=80, value=45, step=1)
 
-# g. Current gas tank volume left
+# g. Current gas tank volume left (fraction)
 tank_left = st.sidebar.slider("Current Gas Tank Volume Left", min_value=0.1, max_value=1.0, value=0.25, step=0.05)
 
 # h. radius search size in kms
 radius_search = st.sidebar.slider("Size of radius search (km)", min_value=1, max_value=(int(autonomy)-5), value=50, step=2)
+
+st.sidebar.write("The recommendation is limited to the 40 closest stations to the selected address, which may prevail on the above-defined distance and criteria")
 
 # Main content
 st.title("Gas Price Finder in France")
@@ -81,7 +100,8 @@ file_info = get_file_info(folder_path, file_name)
 update_datetime = datetime.strptime(f"{file_info['creation_date']} {file_info['creation_time']}", "%Y-%m-%d %H:%M:%S")
 # Format it as desired
 formatted_datetime = update_datetime.strftime("%d %B %Y à %Hh%M")
-st.write(f"Les données de prix de carburant ont été mises à jour le {formatted_datetime}. Pressez le bouton ci-dessous pour une mise à jour")
+st.write(f"Price information have been last updated on {formatted_datetime}. Please press the 'refresh' button below for a newer update")
+st.write(f"source: https://www.prix-carburants.gouv.fr/rubrique/opendata/, limited to metropolitan France")
 
 refresh=st.button(help='A few seconds will be required to get refreshed data', label="Get refreshed data")
 
@@ -124,6 +144,7 @@ country = "France"
 user_address = f"{street}, {zipcode}, {city}, {country}"
 
 # Get user coordinates
+st.write("A more precise and tailored recommendation can be made using extra information provided in left column. The 'super recommendation' button can be actioned once the first 'Find Gas Stations' step is actioned")
 if st.button("Find Gas Stations"):
     result = get_coordinates(user_address)
     if result:
@@ -173,7 +194,7 @@ if st.button("Find Gas Stations"):
             closest_stations = filtered_df.nsmallest(100, 'distance')
             # Create map
             m = create_map(user_address, user_latitude, user_longitude, filtered_df, selected_gas_type)
-            folium_static(m)
+            folium_static(m, width=1500, height=1200)
             output_dir = 'Data/user_specific'
             os.makedirs(output_dir, exist_ok=True)
             # Generate a timestamp for a unique filename
@@ -216,15 +237,13 @@ if st.button("Find Gas Stations"):
                     st.warning("No stations found within the selected distance range.")
                 # Display the number of stations shown
                 st.info(f"Showing {len(filtered_stations)} stations")
-
         else:
-            st.error("Please select a gas type to continue")
-     
+            st.error("Please select a gas type to continue")     
     else:
         st.error("Could not find coordinates for the given address")
 
 if st.button("Super Recommendation"):
-    st.write("Processing calculations. Should take a minute or so ...")
+    st.toast("Processing calculations... Should take less than a minute ...")
     if st.session_state['filtered_df'] is not None and st.session_state['user_latitude'] is not None and st.session_state['user_longitude'] is not None:
         # Perform the advanced filtering and calculations# Perform the advanced filtering and calculations
         super_filters = st.session_state['filtered_df'][
@@ -241,7 +260,8 @@ if st.button("Super Recommendation"):
             # ii. Calculate actual distance to station (adts) using a routing library
             def calculate_route_distance(start_coords, end_coords):
                 try:
-                    client = ors.Client(key='5b3ce3597851110001cf624810604d4892ea4b4eaedf9f5ac620106a')  # Free API key
+                    # Use the API key in your Streamlit app
+                    client = ors.Client(key=api_key)  # Free API key
                     start_lon, start_lat = float(start_coords[0]), float(start_coords[1])
                     end_lon, end_lat = float(end_coords[0]), float(end_coords[1])
                     logging.info(f"Start coordinates: {start_coords}")
@@ -277,11 +297,12 @@ if st.button("Super Recommendation"):
             # If you want to fill the remaining rows with a placeholder value (e.g., NaN or -1)
             super_filters['adts'] = super_filters['adts'].fillna(np.nan)  # or use .fillna(np.nan) for NaN
             # super_filters['adts'] = super_filters.apply(lambda row: calculate_route_distance((user_longitude, user_latitude), (row['longitude'], row['latitude'])), axis=1)                        
-            super_filters = super_filters.dropna(subset=[f'{selected_gas_type}_price']) # Remove rows where route calculation failed
+            super_filters = super_filters.dropna(subset=[f'{selected_gas_type}_price']) # Remove rows where selected gas_type is not available
             super_filters = super_filters.dropna(subset=['adts'])  # Remove rows where route calculation failed
             # iii. Calculate costs and time to reach station
-            apgt50 = st.session_state['filtered_df'].nsmallest(50, 'distance')[f'{selected_gas_type}_price'].mean()
-              
+            # average price of the gas type in the 50 closest stations
+            apgt50 = st.session_state['filtered_df'].nsmallest(50, 'distance')[f'{selected_gas_type}_price'].mean()  
+            # cost to get to the station
             super_filters['cost_to_reach'] = super_filters['adts'] * consumption / 100 * apgt50
             super_filters['time_to_reach'] = super_filters['adts'].apply(lambda x: format_timedelta(timedelta(hours=x/50)))
             # iv. Calculate summary
@@ -295,26 +316,35 @@ if st.button("Super Recommendation"):
             st.write(f"Average price of {selected_gas_type} in 50 closest stations: {apgt50:.2f} €/L")
             # Display the super_filters dataframe
             additional_columns_to_drop=['horaires','pop']
-            columns_to_drop = [f'{gas}_price' for gas in gas_types if gas != selected_gas_type] + additional_columns_to_drop
+            gas_columns_to_drop = [f"{gas}_price" for gas in gas_types if gas != selected_gas_type]
+            print(gas_columns_to_drop)
+            columns_to_drop = gas_columns_to_drop + additional_columns_to_drop
             super_filters = super_filters.drop(columns=columns_to_drop)
             super_filters_sorted = super_filters.sort_values(by=['total_cost', 'time_to_reach'], ascending=[True, True])
             # Display the sorted DataFrame
             st.success(f"List of gas stations ordered by (increasing) price for tank re-fill including the 2-way trip to the station")
             st.dataframe(super_filters_sorted)
+            st.write("'adts / distance to reach' is the distance to the station, driving of distance, one way<br>\
+                    'cost to reach' is the price of has consumption to get to the station (driving)\
+                    'totalcost' is the cost for tank refill and the gas consumption for the 2-way trip to the station", unsafe_allow_html=True)
             # Save the super_filters dataframe as CSV
             # Generate a timestamp
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             super_filtered_df_filename = f'super_filter_results_{timestamp}.csv'
             super_filters_sorted.to_csv(f'Data/user_specific/{super_filtered_df_filename}', index=False)
             st.success(f"Results saved to 'Data/{super_filtered_df_filename}")
-            st.write('Maps of gas stations')
-            st.components.v1.html(st.session_state.map_path)
+            #st.write('Maps of gas stations')
+            #st.components.v1.html(st.session_state.map_path)
             
             # Create and display the new map
             if not super_filters.empty:
-                st.subheader("Super Recommendation Map")
+                st.subheader("Super Recommendation Map with highlights (40 closest stations)")
+                st.write("5 lowest costs stations circled in green ")
+                map_with_highlights = create_map_filtered_stations_with_highlights(super_filters, user_latitude, user_longitude, selected_gas_type)
+                st.components.v1.html(map_with_highlights._repr_html_(), width=1500, height=1200)
+                st.subheader("Super Recommendation Map (40 closest stations)")
                 super_map = create_super_filter_map(user_address, user_latitude, user_longitude, super_filters, selected_gas_type)
-                folium_static(super_map)
+                folium_static(super_map, width=1500, height=1200)
             else:
                 st.warning("No stations found for super recommendation.")
             
@@ -322,6 +352,7 @@ if st.button("Super Recommendation"):
             super_filters.to_csv('Data/super_filters_results.csv', index=False)
             st.success("Results saved to 'Data/super_filters_results.csv'")
     else:
-        st.error("Initial step 'Find Gas stations' should be pressed first before actioning a super recommendation")
+        st.error("Initial step 'Find Gas stations' should be processed before actioning a super recommendation")
 else:
-    st.write("We may try to make a more precise recommendation based on the extra information provided in left column")
+    st.write("A more precise and tailored recommendation can be made using extra information provided in left column.\
+             Please press the 'super recommendation' button to obtain it once the first button and step is actioned")

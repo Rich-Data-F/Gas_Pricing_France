@@ -3,6 +3,7 @@ import pandas as pd
 import duckdb
 from geopy.geocoders import Nominatim
 import folium
+from folium.plugins import MarkerCluster
 import streamlit as st
 from streamlit_folium import folium_static
 from geopy.exc import GeocoderServiceError, GeocoderTimedOut
@@ -10,6 +11,25 @@ import numpy as np
 import os
 from datetime import datetime, timedelta
 import locale
+from dotenv import load_dotenv
+from cryptography.fernet import Fernet
+
+
+def decrypt_env():
+    with open("secret.key", "rb") as key_file:
+        key = key_file.read()
+    fernet = Fernet(key)
+    with open('.env.encrypted', 'rb') as enc_file:
+        encrypted = enc_file.read()
+    decrypted = fernet.decrypt(encrypted)
+    return decrypted.decode()
+
+def get_api_key():
+    decrypted_env = decrypt_env()
+    for line in decrypted_env.split('\n'):
+        if line.startswith('OPENROUTE_API_KEY='):
+            return line.split('=')[1].strip()
+    raise ValueError("OPENROUTE_API_KEY not found in decrypted .env file")
 
 def get_file_info(folder_path, file_name):
     file_path = os.path.join(folder_path, file_name)
@@ -264,6 +284,81 @@ def create_super_filter_map(user_address, user_latitude, user_longitude, super_f
         ).add_to(m)
     return m
 
+def create_map_filtered_stations_with_highlights(super_filters, user_latitude, user_longitude, selected_gas_type):
+    # Sort the DataFrame by total_cost and select the top 5
+    top_5_stations = super_filters.sort_values('total_cost').head(5)
+
+    # Create a base map
+    m = folium.Map(location=[user_latitude, user_longitude], zoom_start=12)
+
+    # Add a marker for the user's location
+    folium.Marker(
+        [user_latitude, user_longitude],
+        popup="Your Location",
+        icon=folium.Icon(color="red", icon="info-sign"),
+    ).add_to(m)
+
+    # Create a MarkerCluster for all stations
+    marker_cluster = MarkerCluster().add_to(m)
+
+    # Add markers for all stations
+    for idx, row in super_filters.iterrows():
+        # Prepare popup content
+        popup_content = f"""
+        <b>ID:</b> {row['id']}<br>
+        <b>Address:</b> {row['adresse']}<br>
+        <b>City:</b> {row['ville']}<br>
+        <b>Postal Code:</b> {row['cp']}<br>
+        <b>{selected_gas_type} Price:</b> {row[f'{selected_gas_type}_price']}<br>
+        <b>Last Updated:</b> {row['last_updated']}<br>
+        <b>Actual Distance:</b> {row['adts']:.2f} km<br>
+        <b>Total Cost for Refill (2-way trip):</b> {row['total_cost']:.2f} €
+        """
+
+        # Prepare tooltip content
+        tooltip_content = f"{row['adresse']}, {row['ville']}<br>{selected_gas_type} Price: {row[f'{selected_gas_type}_price']}<br>Actual Distance: {row['adts']:.2f} km<br>Total Cost: {row['total_cost']:.2f} €"
+
+        # Add marker to cluster
+        folium.Marker(
+            location=[row['latitude'], row['longitude']],
+            popup=folium.Popup(popup_content, max_width=300),
+            tooltip=tooltip_content,
+            icon=folium.Icon(color='blue', icon='info-sign')
+        ).add_to(marker_cluster)
+
+    # Add special markers for the top 5 stations
+    for idx, row in top_5_stations.iterrows():
+        popup_content = f"""
+        <b>ID:</b> {row['id']}<br>
+        <b>Address:</b> {row['adresse']}<br>
+        <b>City:</b> {row['ville']}<br>
+        <b>Postal Code:</b> {row['cp']}<br>
+        <b>{selected_gas_type} Price:</b> {row[f'{selected_gas_type}_price']}<br>
+        <b>Last Updated:</b> {row['last_updated']}<br>
+        <b>Actual Distance:</b> {row['adts']:.2f} km<br>
+        <b>Total Cost for Refill (2-way trip):</b> {row['total_cost']:.2f} €
+        """
+
+        tooltip_content = f"{row['adresse']}, {row['ville']}<br>{selected_gas_type} Price: {row[f'{selected_gas_type}_price']}<br>Actual Distance: {row['adts']:.2f} km<br>Total Cost: {row['total_cost']:.2f} €"
+
+        folium.Marker(
+            location=[row['latitude'], row['longitude']],
+            popup=folium.Popup(popup_content, max_width=300),
+            tooltip=tooltip_content,
+            icon=folium.Icon(color='green', icon='star')
+        ).add_to(m)
+
+        # Add a circle to highlight the area
+        folium.Circle(
+            location=[row['latitude'], row['longitude']],
+            radius=500,  # 500 meters radius, adjust as needed
+            color='green',
+            fill=True,
+            fillColor='green',
+            fillOpacity=0.2
+        ).add_to(m)
+
+    return m
 
 def haversine_distance(lat1, lon1, lat2, lon2):
     R = 6371  # Earth's radius in kilometers

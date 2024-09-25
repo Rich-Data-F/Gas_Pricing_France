@@ -11,5 +11,7 @@ numpy
 scikit-learn
 taxicab
 openrouteservice
+cryptography
+python-dotenv
 --pre
 osmnx
