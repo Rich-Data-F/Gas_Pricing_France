@@ -49,7 +49,8 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # Get the API key
-api_key = get_api_key()
+#api_key = get_api_key()
+api_key=st.secrets["OPENROUTE_API_KEY"]
 
 #sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
