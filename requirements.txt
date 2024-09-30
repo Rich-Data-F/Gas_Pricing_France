@@ -13,3 +13,4 @@ taxicab
 openrouteservice
 cryptography
 python-dotenv
+sqlalchemy

@@ -12,8 +12,12 @@ To limit the computing, only stations in selected address and adjacent departmen
 
 Calculations of actual (driving) distance are calculated using the openrouteservice API https://openrouteservice.org/
 
-Exploration of the linkage of user feedback to a CRM has been performed using Hubspot free account and a private app developer account https://developers.hubspot.com/docs/api/private-apps 
+in left column (the sidebar, as per Streamlit verbatim)
+- A feedback form has been connected to a CRM for ticket creation using Hubspot free account and a private app developer API key.
+https://developers.hubspot.com/docs/api/private-apps
 
+- Connections are logged in an sql lite database https://www.sqlite.org/, using anonymised IP addresses * for GDPR compliance. Number of apps usage, as well as usage statistics (to the user ticking the checkbox) are provided.
 
+* Instead of storing the full IP address, we do mask the last octet (for IPv4) or the last 80 bits (for IPv6), similarly to Google Analytics' IP anonymization technique.
 
 

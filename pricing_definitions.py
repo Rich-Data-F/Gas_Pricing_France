@@ -1,3 +1,4 @@
+import ipaddress
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
 import locale
@@ -15,6 +16,110 @@ from cryptography.fernet import Fernet
 import requests
 import json
 import logging
+from sqlalchemy import create_engine, text
+
+
+#### definition of functions for logging connections and some stats
+    
+def get_remote_ip() -> str:
+    try:
+        ctx = get_script_run_ctx()
+        if ctx is None:
+            return None
+        session_info = st.runtime.get_instance().get_client(ctx.session_id)
+        if session_info is None:
+            return None
+        return session_info.request.remote_ip
+    except Exception as e:
+        print(f"Error getting remote IP: {str(e)}")
+        return "127.0.0.1"  # Fallback to localhost if unable to get IP
+
+def anonymize_ip(ip):
+    try:
+        ip_obj = ipaddress.ip_address(ip)
+        if ip_obj.version == 4:
+            return str(ipaddress.ip_network(f"{ip}/24", strict=False).network_address)
+        elif ip_obj.version == 6:
+            return str(ipaddress.ip_network(f"{ip}/48", strict=False).network_address)
+    except ValueError:
+        return None  # Invalid IP address
+
+def initialize_database(conn):
+    with conn.session as session:
+        session.execute(text("""
+            CREATE TABLE IF NOT EXISTS usage_stats (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                connection_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+                anonymized_ip TEXT,
+                last_activity_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+                session_duration INTEGER DEFAULT 0
+            )
+        """))
+        session.commit()
+
+def log_connection(conn, ip_address):
+    print(f"Attempting to log connection for IP: {ip_address}")
+    if ip_address is None or ip_address == "127.0.0.1":
+        ip_address = "unknown"
+    anonymized_ip = anonymize_ip(ip_address)
+    print(f"Anonymized IP: {anonymized_ip}")
+    if anonymized_ip:
+        current_time = datetime.now()
+        try:
+            with conn.session as session:
+                # Create new session
+                session.execute(text("""
+                    INSERT INTO usage_stats (anonymized_ip, connection_time, last_activity_time) 
+                    VALUES (:ip, :current_time, :current_time)
+                """), {"ip": anonymized_ip, "current_time": current_time})
+                session.commit()
+                print("Session committed successfully")
+        except Exception as e:
+            print(f"Error in log_connection: {str(e)}")
+    else:
+        print("Failed to anonymize IP")
+
+def get_average_session_duration(conn):
+    return conn.query("""
+        SELECT AVG(session_duration) as avg_duration 
+        FROM usage_stats
+    """).iloc[0]['avg_duration']
+
+def get_total_session_duration(conn):
+    return conn.query("""
+        SELECT SUM(session_duration) as total_duration 
+        FROM usage_stats
+    """).iloc[0]['total_duration']
+
+def get_longest_session(conn):
+    return conn.query("""
+        SELECT MAX(session_duration) as max_duration 
+        FROM usage_stats
+    """).iloc[0]['max_duration']
+
+def get_total_connections(conn):
+    return conn.query("SELECT COUNT(*) as total FROM usage_stats").iloc[0]['total']
+
+def get_unique_users(conn):
+#    return conn.query("SELECT COUNT(DISTINCT anonymized_ip) as unique_users FROM usage_stats").iloc[0]['unique_users']
+    result = conn.query("SELECT COUNT(DISTINCT anonymized_ip) as unique_users FROM usage_stats").iloc[0]['unique_users']
+    print(f"Unique users query result: {result}")
+    return result if result is not None else 0
+
+def display_usage_stats(conn):
+    total_connections = get_total_connections(conn)
+    unique_users = get_unique_users(conn)
+    avg_duration = get_average_session_duration(conn)
+    total_duration = get_total_session_duration(conn)
+    st.sidebar.write(f"Total connections: {total_connections}")
+    st.sidebar.write(f"Unique users: {unique_users}")
+    if avg_duration is not None:
+        st.sidebar.write(f"Average session duration: {avg_duration:.2f} seconds")
+    else:
+        st.sidebar.write("Average session duration: N/A")
+    st.sidebar.write(f"Total session duration: {total_duration} seconds")
+
+######## end of logging tracking
 
 def decrypt_env():
     with open("secret.key", "rb") as key_file:
