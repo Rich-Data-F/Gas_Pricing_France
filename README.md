@@ -12,7 +12,7 @@ To limit the computing, only stations in selected address and adjacent departmen
 
 Calculations of actual (driving) distance are calculated using the openrouteservice API https://openrouteservice.org/
 
-
+Exploration of the linkage of user feedback to a CRM has been performed using Hubspot free account and a private app developer account https://developers.hubspot.com/docs/api/private-apps 
 
 
 

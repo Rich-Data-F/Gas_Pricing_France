@@ -1,19 +1,20 @@
 import xml.etree.ElementTree as ET
+from datetime import datetime, timedelta
+import locale
 import pandas as pd
 import duckdb
 from geopy.geocoders import Nominatim
 import folium
 from folium.plugins import MarkerCluster
 import streamlit as st
-from streamlit_folium import folium_static
+from dotenv import load_dotenv
 from geopy.exc import GeocoderServiceError, GeocoderTimedOut
 import numpy as np
 import os
-from datetime import datetime, timedelta
-import locale
-from dotenv import load_dotenv
 from cryptography.fernet import Fernet
-
+import requests
+import json
+import logging
 
 def decrypt_env():
     with open("secret.key", "rb") as key_file:
@@ -24,12 +25,173 @@ def decrypt_env():
     decrypted = fernet.decrypt(encrypted)
     return decrypted.decode()
 
-def get_api_key():
-    decrypted_env = decrypt_env()
-    for line in decrypted_env.split('\n'):
-        if line.startswith('OPENROUTE_API_KEY='):
-            return line.split('=')[1].strip()
-    raise ValueError("OPENROUTE_API_KEY not found in decrypted .env file")
+def get_api_key(key_name):
+    print(f"Attempting to get API key for: {key_name}")
+    
+    # Try Streamlit secrets
+    try:
+        api_key = st.secrets[key_name]
+        if api_key:
+            print(f"API key found in Streamlit secrets.")
+            return api_key
+    except (FileNotFoundError, KeyError):
+        print(f"Key not found in Streamlit secrets, trying decrypted .env")
+    
+    # Try decrypted .env file
+    try:
+        decrypted_env = decrypt_env()  # Ensure your decrypt_env function is defined
+        for line in decrypted_env.split('\n'):
+            if line.startswith(f'{key_name}='):
+                api_key = line.split('=')[1].strip()
+                if api_key:
+                    print(f"API key found in decrypted .env.")
+                    return api_key
+    except Exception as e:
+        print(f"Error decrypting .env file: {e}")
+    
+    # If we've reached this point, both Streamlit secrets and decrypted .env have failed
+    print(f"Key not found in Streamlit secrets or decrypted .env, trying regular .env")
+    
+    # Only load from regular .env if previous methods failed
+    load_dotenv()
+    api_key = os.getenv(key_name)
+    
+    if api_key:
+        print(f"API key found in regular .env.")
+        return api_key
+    else:
+        print(f"API key not found in any source.")
+        return None
+
+
+# HubSpot API configuration
+BASE_URL = "https://api.hubapi.com"
+#ACCESS_TOKEN = os.getenv("HUBSPOT_API_KEY")
+
+def submit_ticket(category, subject, description, priority=None):
+    url = "https://api.hubapi.com/crm/v3/objects/tickets"
+    
+    ACCESS_TOKEN = os.environ.get('HUBSPOT_API_KEY')
+    if not ACCESS_TOKEN:
+        logging.error("ACCESS_TOKEN is not set or empty")
+        return False, "Error: ACCESS_TOKEN is not set or empty"
+
+    headers = {
+        "Authorization": f"Bearer {ACCESS_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    
+    data = {
+        "properties": {
+            "subject": subject,
+            "content": description,
+            "hs_pipeline": "0",
+            "hs_pipeline_stage": "864905971",
+            "hs_ticket_category": category
+        }
+    }
+    
+    if priority:
+        data["properties"]["hs_ticket_priority"] = priority
+
+    try:
+        logging.info(f"Submitting ticket: {data}")
+        response = requests.post(url, json=data, headers=headers)
+        response.raise_for_status()
+        logging.info(f"Response status: {response.status_code}")
+        logging.info(f"Response content: {response.text}")
+        return True, "Ticket submitted successfully"
+    except requests.exceptions.HTTPError as e:
+        logging.error(f"HTTP Error: {e}")
+        return False, f"Error submitting ticket: {str(e)}"
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Error submitting ticket: {str(e)}")
+        return False, f"Error submitting ticket: {str(e)}"
+
+def submit_feedback(category, subject, body, rating):
+    url = "https://api.hubapi.com/crm/v3/objects/feedback_submissions"
+    headers = {
+        "Authorization": f"Bearer {YOUR_ACCESS_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    data = {
+        "properties": {
+            "hs_timestamp": datetime.utcnow().isoformat() + "Z",
+            "hs_feedback_source": "Streamlit App",
+            "hs_feedback_subject": f"{category}: {subject}",
+            "hs_feedback_body": body,
+#            "feedback_category": category,
+            "hs_feedback_rating": str(rating)
+        }
+    }
+    response = requests.post(url, json=data, headers=headers)
+    return response.status_code == 200
+
+def get_hubspot_properties():
+    """Retrieve properties for feedback submissions from HubSpot."""
+    url = f"{BASE_URL}/crm/v3/properties/feedback_submissions/batch/create"
+    headers = {
+        "Authorization": f"Bearer {ACCESS_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    try:
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()  # Raise an exception for bad status codes
+        properties = response.json()
+        return True, properties
+    except requests.exceptions.RequestException as e:
+        return False, f"Error retrieving properties: {str(e)}"
+
+def submit_feedback(category, subject, body, rating):
+    """Submit feedback to HubSpot."""
+    url = f"{BASE_URL}/crm/v3/objects/feedback_submissions/batch/create"
+    headers = {
+        "Authorization": f"Bearer {ACCESS_TOKEN}",
+        "Content-Type": "application/json"
+    }
+
+    data = {
+        "inputs": [
+            {
+                "properties": {
+                    "hs_timestamp": datetime.utcnow().isoformat() + "Z",
+                    "hs_feedback_source": "Streamlit App",
+                    "hs_feedback_subject": f"{category}: {subject}",
+                    "hs_feedback_body": body,
+                    "hs_feedback_rating": str(rating)
+                }
+            }
+        ]
+    }
+
+    try:
+        response = requests.post(url, headers=headers, json=data)
+        response.raise_for_status()
+        return True, "Feedback submitted successfully!"
+    except requests.exceptions.RequestException as e:
+        return False, f"Error submitting feedback: {str(e)}"
+
+
+def get_api_key(key_name):
+    # First, try to get the API key from Streamlit secrets
+    try:
+        return st.secrets[key_name]
+    except (FileNotFoundError, KeyError):
+        # If not found in secrets, try to load from decrypted .env file
+        try:
+            decrypted_env = decrypt_env()
+            for line in decrypted_env.split('\n'):
+                if line.startswith(f'{key_name}='):
+                    return line.split('=')[1].strip()
+        except Exception as e:
+            print(f"Error decrypting .env file: {e}")
+        # If still not found, try loading from regular .env file
+        load_dotenv()
+        api_key = os.getenv(key_name)
+        if api_key:
+            return api_key        
+        # If API key is not found anywhere, raise an error
+        raise ValueError(f"{key_name} not found in Streamlit secrets, decrypted .env file, or regular .env file")
 
 def get_file_info(folder_path, file_name):
     file_path = os.path.join(folder_path, file_name)

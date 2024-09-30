@@ -1,3 +1,4 @@
+from dotenv import load_dotenv
 import streamlit as st
 import sys
 import pandas as pd
@@ -12,10 +13,11 @@ import zipfile
 import io
 import logging
 import openrouteservice as ors
-from dotenv import load_dotenv
 from cryptography.fernet import Fernet
 
 from pricing_definitions import *
+
+load_dotenv()
 
 # initialisation of session state entities
 if 'filtered_df' not in st.session_state:
@@ -48,9 +50,13 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# Get the API key
-#api_key = get_api_key()
-api_key=st.secrets["OPENROUTE_API_KEY"]
+# Get the API keys
+try:
+    openroute_api_key = get_api_key("OPENROUTE_API_KEY")
+    hubspot_api_key = os.getenv("HUBSPOT_API_KEY") #get_api_key("HUBSPOT_API_KEY")
+except ValueError as e:
+    st.error(str(e))
+    st.stop()
 
 #sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -89,6 +95,53 @@ tank_left = st.sidebar.slider("Current Gas Tank Volume Left (fraction)", min_val
 radius_search = st.sidebar.slider("Size of radius search (km)", min_value=1, max_value=(int(autonomy)-5), value=50, step=2)
 
 st.sidebar.write("The recommendation is limited to the 40 closest stations to the selected address, which may prevail on the above-defined distance and criteria")
+
+st.sidebar.info("This app allows you to submit customer feedback directly to our HubSpot CRM.")
+
+with st.sidebar.expander("Submit Feedback"):
+    st.title("Submit a Ticket")
+    subject = st.text_input("Subject")
+    description = st.text_area("Description")
+    # Define category options with user-friendly labels
+    category_options = {
+        "Product Issue": "PRODUCT_ISSUE",
+        "Billing Issue": "BILLING_ISSUE",
+        "Feature Request": "FEATURE_REQUEST",
+        "General Inquiry": "GENERAL_INQUIRY"
+    }
+    selected_category = st.selectbox(
+        "Category",
+        options=list(category_options.keys()),
+        index=None,
+        format_func=lambda x: x,
+        placeholder="Select a category..."
+    )
+    # Define priority options with user-friendly labels
+    priority_options = {
+        "Low": "LOW",
+        "Medium": "MEDIUM",
+        "High": "HIGH"
+    }
+    selected_priority = st.selectbox(
+        "Priority (optional)",
+        options=[None] + list(priority_options.keys()),
+        index=0,
+        format_func=lambda x: "Select priority..." if x is None else x
+    )
+    if st.button("Submit Ticket"):
+        if not subject or not description or not selected_category:
+            st.error("Please fill in all required fields.")
+        else:
+            # Map the selected options to their API values
+            category = category_options[selected_category]
+            priority = priority_options[selected_priority] if selected_priority else None            
+            success, message = submit_ticket(category, subject, description, priority)
+            if success:
+                st.success(message)
+            else:
+                st.error(message)
+
+
 
 # Main content
 st.title("Gas Station and Best Price locator")
@@ -130,10 +183,12 @@ if refresh:
     formatted_datetime = update_datetime.strftime("%d %B %Y à %Hh%M")
     st.write(f"Les données de prix de carburant ont été mises à jour le {formatted_datetime}. Pressez le bouton ci-dessous pour une mise à jour")
 
+
+
 # Address inputs
 col1, col2, col3 = st.columns(3)
 with col1:
-    street = st.text_input("Street Address", "rue des clés")
+    street = st.text_input("Street Address", "rue des clefs")
 with col2:
     city = st.text_input("City", "Thônes")
 with col3:
@@ -262,7 +317,7 @@ if st.button("Super Recommendation"):
             def calculate_route_distance(start_coords, end_coords):
                 try:
                     # Use the API key in your Streamlit app
-                    client = ors.Client(key=api_key)  # Free API key
+                    client = ors.Client(key=openroute_api_key)  # Free API key
                     start_lon, start_lat = float(start_coords[0]), float(start_coords[1])
                     end_lon, end_lat = float(end_coords[0]), float(end_coords[1])
                     logging.info(f"Start coordinates: {start_coords}")
@@ -339,7 +394,7 @@ if st.button("Super Recommendation"):
             
             # Create and display the new map
             if not super_filters.empty:
-                st.subheader("Super Recommendation Map with highlights (40 closest stations)")
+                st.subheader("the top 5 recommended stations")
                 st.write("5 lowest costs stations circled in green ")
                 map_with_highlights = create_map_filtered_stations_with_highlights(super_filters, user_latitude, user_longitude, selected_gas_type)
                 st.components.v1.html(map_with_highlights._repr_html_(), width=1500, height=1200)
