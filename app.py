@@ -246,8 +246,8 @@ def main():
             gas_price_columns = [col for col in df.columns if col.startswith('prix_')]
             print("Gas price columns:", gas_price_columns)
             #list comprehension to remove the text before the _
-            gas_types = [item.split("_", 1)[-1] for item in gas_price_columns]
-            print(gas_types)
+            st.session_state.gas_types = [item.split("_", 1)[-1] for item in gas_price_columns]
+            print(st.session_state.gas_types)
             #default_index = gas_types.index('Gazole') if 'Gazole' in gas_types else 0
             if st.session_state.selected_gas_type:
                 st.success(f"Vous avez choisi le carburant {st.session_state.selected_gas_type}")
@@ -310,13 +310,13 @@ def main():
         if st.session_state['filtered_df'] is not None and st.session_state['user_latitude'] is not None and st.session_state['user_longitude'] is not None:
             # Perform the advanced filtering and calculations# Perform the advanced filtering and calculations
             super_filters = st.session_state['filtered_df'][
-                (st.session_state['filtered_df']['distance']<=radius_search) &
+                (st.session_state['filtered_df']['distance']<=st.session_state.radius_search) &
                 (st.session_state['filtered_df'][f'{st.session_state.selected_gas_type}_price'].notna())
                 ].copy()
             user_latitude = st.session_state['user_latitude']
             user_longitude = st.session_state['user_longitude']
             if super_filters.empty:
-                st.warning(f"No stations found within {radius_search} kms. Please try increasing the search radius.")
+                st.warning(f"No stations found within {st.session_state.radius_search} kms. Please try increasing the search radius.")
             else:
                 #setup logging
                 logging.basicConfig(level=logging.INFO)
@@ -366,11 +366,11 @@ def main():
                 # average price of the gas type in the 50 closest stations
                 apgt50 = st.session_state['filtered_df'].nsmallest(50, 'distance')[f'{st.session_state.selected_gas_type}_price'].mean()  
                 # cost to get to the station
-                super_filters['cost_to_reach'] = super_filters['adts'] * consumption / 100 * apgt50
+                super_filters['cost_to_reach'] = super_filters['adts'] * st.session_state.consumption / 100 * apgt50
                 super_filters['time_to_reach'] = super_filters['adts'].apply(lambda x: format_timedelta(timedelta(hours=x/50)))
                 # iv. Calculate summary
-                super_filters['total_cost'] = (tank_volume * (1 - tank_left)) * super_filters[f'{st.session_state.selected_gas_type}_price'] + \
-                                            2*super_filters['adts'] * consumption / 100 * apgt50
+                super_filters['total_cost'] = (st.session_state.tank_volume * (1 - st.session_state.tank_left)) * super_filters[f'{st.session_state.selected_gas_type}_price'] + \
+                                            2*super_filters['adts'] * st.session_state.consumption / 100 * apgt50
                 # Print some diagnostics
                 print(f"Number of failed calculations: {(super_filters['adts'] == -1).sum()}")
                 print(super_filters['adts'].describe())
@@ -379,7 +379,7 @@ def main():
                 st.write(f"Average price of {st.session_state.selected_gas_type} in 50 closest stations: {apgt50:.2f} €/L")
                 # Display the super_filters dataframe
                 additional_columns_to_drop=['horaires','pop']
-                gas_columns_to_drop = [f"{gas}_price" for gas in gas_types if gas != st.session_state.selected_gas_type]
+                gas_columns_to_drop = [f"{gas}_price" for gas in st.session_state.gas_types if gas != st.session_state.selected_gas_type]
                 print(gas_columns_to_drop)
                 columns_to_drop = gas_columns_to_drop + additional_columns_to_drop
                 super_filters = super_filters.drop(columns=columns_to_drop)
@@ -426,8 +426,8 @@ def main():
     st.sidebar.title("Gas Station Finder Options")
 
     # 1. Gas type selection (mandatory)
-    gas_types = ['Gazole', 'SP95', 'SP98', 'GPLc', 'E10', 'E85']  # Add all available gas types
-    st.session_state.selected_gas_type = st.sidebar.selectbox("Select Gas Type", gas_types, index=gas_types.index('Gazole'))
+    st.session_state.gas_types = ['Gazole', 'SP95', 'SP98', 'GPLc', 'E10', 'E85']  # Add all available gas types
+    st.session_state.selected_gas_type = st.sidebar.selectbox("Select Gas Type", st.session_state.gas_types, index=st.session_state.gas_types.index('Gazole'))
 
     # Optional inputs
     st.sidebar.subheader("Optional Filters")
@@ -445,16 +445,16 @@ def main():
     #autoroutes_allowed = st.sidebar.radio("Autoroutes Allowed", ["Yes", "No"], index=0)
 
     # e. Vehicle consumption
-    consumption = st.sidebar.number_input("Vehicle Consumption (L/100km)", value=6.0, min_value=0.5, step=0.5)
+    st.session_state.consumption = st.sidebar.number_input("Vehicle Consumption (L/100km)", value=6.0, min_value=0.5, step=0.5)
 
     # f. Gas tank total volume
-    tank_volume = st.sidebar.slider("Gas Tank Total Volume (L)", min_value=5, max_value=80, value=45, step=1)
+    st.session_state.tank_volume = st.sidebar.slider("Gas Tank Total Volume (L)", min_value=5, max_value=80, value=45, step=1)
 
     # g. Current gas tank volume left (fraction)
-    tank_left = st.sidebar.slider("Current Gas Tank Volume Left (fraction)", min_value=0.1, max_value=1.0, value=0.25, step=0.05)
+    st.session_state.tank_left = st.sidebar.slider("Current Gas Tank Volume Left (fraction)", min_value=0.1, max_value=1.0, value=0.25, step=0.05)
 
     # h. radius search size in kms
-    radius_search = st.sidebar.slider("Size of radius search (km)", min_value=1, max_value=(int(autonomy)-5), value=50, step=2)
+    st.session_state.radius_search = st.sidebar.slider("Size of radius search (km)", min_value=1, max_value=(int(autonomy)-5), value=50, step=2)
 
     st.sidebar.write("The recommendation is limited to the 40 closest stations to the selected address, which may prevail on the above-defined distance and criteria")
 
