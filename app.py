@@ -16,8 +16,9 @@ import logging
 import openrouteservice as ors
 from cryptography.fernet import Fernet
 from sqlalchemy import create_engine, text
-from streamlit.runtime.scriptrunner import get_script_run_ctx
+#from streamlit.runtime.scriptrunner import get_script_run_ctx
 import threading
+import time
 
 from pricing_definitions import *
 
@@ -34,7 +35,7 @@ def log_app_usage(conn):
     else:
         print("Failed to retrieve IP address")
 
-def update_last_activity(conn, anonymized_ip):
+def update_last_activity(conn):
     current_time = datetime.now()
     try:
         with conn.session as session:
@@ -48,28 +49,11 @@ def update_last_activity(conn, anonymized_ip):
         print(f"Error in update_last_activity: {str(e)}")
 
 def heartbeat():
-    while True:
+    while st.session_state.get('active',True):
         time.sleep(30)  # Check every 30 seconds
-        if st.session_state.get('active', False):
-            update_last_activity(conn, st.session_state.anonymized_ip)
-        else:
-            break
+        update_last_activity(conn)
 
 
-# initialisation of session state entities
-if 'filtered_df' not in st.session_state:
-    st.session_state['filtered_df'] = None
-if 'user_latitude' not in st.session_state:
-    st.session_state['user_latitude'] = None
-if 'user_longitude' not in st.session_state:
-    st.session_state['user_longitude'] = None
-map_path=''
-if map_path not in st.session_state:
-    st.session_state.map_path=''
-# Initialize session state
-if 'active' not in st.session_state:
-    st.session_state.active = True
-    threading.Thread(target=heartbeat).start()
 #if 'anonymized_ip' not in st.session_state:
 #    st.session_state.anonymized_ip = ''
 
@@ -79,6 +63,8 @@ os.makedirs('Data/usage', exist_ok=True)
 # Use a relative path to the database file
 db_path = os.path.join('Data', 'usage', 'usage_stats.db')
 conn = st.connection('sqlite', type='sql', url=f"sqlite:///{db_path}")
+
+
 
 st.markdown("""
     <style>
@@ -111,7 +97,7 @@ def test_database_insert(conn):
     try:
         with conn.session as session:
             session.execute(text("""
-                INSERT INTO usage_stats (st.session_state.anonymized_ip, connection_time, last_activity_time) 
+                INSERT INTO usage_stats (anonymized_ip, connection_time, last_activity_time) 
                 VALUES (:ip, :current_time, :current_time)
             """), {"ip": "test_ip", "current_time": datetime.now()})
             session.commit()
@@ -126,6 +112,29 @@ conn = st.connection('sqlite', type='sql', url=f"sqlite:///{db_path}")
 # Initialize the database
 initialize_database(conn)
 
+
+# initialisation of session state entities
+if 'filtered_df' not in st.session_state:
+    st.session_state['filtered_df'] = None
+if 'user_latitude' not in st.session_state:
+    st.session_state['user_latitude'] = None
+if 'user_longitude' not in st.session_state:
+    st.session_state['user_longitude'] = None
+if 'map_path' not in st.session_state:
+    st.session_state.map_path=''
+# Initialize session state
+if 'active' not in st.session_state:
+    st.session_state.active = True
+    threading.Thread(target=heartbeat).start()
+if 'selected_gas_type' not in st.session_state:
+    st.session_state.selected_gas_type = None
+if 'radius_search' not in st.session_state:
+    st.session_state.radius_search = 50  # Default value, adjust as needed
+if 'anonymized_ip' not in st.session_state:
+    ip_address = get_remote_ip()
+    st.session_state.anonymized_ip = anonymize_ip(ip_address)
+    log_connection(conn)
+
 # Call this function after creating the connection
 test_database_connection(conn)
 test_database_insert(conn)
@@ -133,12 +142,10 @@ test_database_insert(conn)
 # Log the connection
 ip_address = get_remote_ip()
 if ip_address:
-    log_connection(conn, ip_address)
+    log_connection(conn)
 else:
     print("Failed to retrieve IP address, logging as unknown")
-    log_connection(conn, "unknown")
-
-
+    log_connection(conn)
 
 # Get the API keys
 try:
@@ -153,6 +160,7 @@ def main():
     
     # Log app usage
     log_app_usage(conn)
+
 
     folder_path='./Data/'
     file_name='PrixCarburants_instantane.xml'
@@ -191,9 +199,15 @@ def main():
         formatted_datetime = update_datetime.strftime("%d %B %Y à %Hh%M")
         st.write(f"Les données de prix de carburant ont été mises à jour le {formatted_datetime}. Pressez le bouton ci-dessous pour une mise à jour")
 
+
     if st.button("I'm done"):
         st.session_state.active = False
-        update_last_activity(conn, st.session_state.anonymized_ip)
+        update_last_activity(conn)
+        duration = get_duration_of_exposition(conn)
+        if duration is not None:
+            st.write(f"Duration of exposition: {duration:.2f} seconds")
+        else:
+            st.write("Duration of exposition: Not available")
         st.write("Thank you for using the app. You can now close this tab.")
         st.stop()
 

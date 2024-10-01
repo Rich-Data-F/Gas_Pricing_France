@@ -17,22 +17,20 @@ import requests
 import json
 import logging
 from sqlalchemy import create_engine, text
+import time
 
 
 #### definition of functions for logging connections and some stats
-    
-def get_remote_ip() -> str:
+
+def get_remote_ip():
     try:
         ctx = get_script_run_ctx()
         if ctx is None:
             return None
-        session_info = st.runtime.get_instance().get_client(ctx.session_id)
-        if session_info is None:
-            return None
-        return session_info.request.remote_ip
+        return ctx.session_info.request.remote_ip
     except Exception as e:
         print(f"Error getting remote IP: {str(e)}")
-        return "127.0.0.1"  # Fallback to localhost if unable to get IP
+        return None
 
 def anonymize_ip(ip):
     try:
@@ -57,13 +55,12 @@ def initialize_database(conn):
         """))
         session.commit()
 
-def log_connection(conn, ip_address):
+def log_connection(conn):
+    ip_address = get_remote_ip()
     print(f"Attempting to log connection for IP: {ip_address}")
-    if 'anonymized_ip' not in st.session_state:
-        st.session_state.anonymized_ip = ''
     if ip_address is None or ip_address == "127.0.0.1":
         ip_address = "unknown"
-    st.session_state.anonymized_ip = anonymize_ip(ip_address)
+#    st.session_state.anonymized_ip = anonymize_ip(ip_address)
     print(f"Anonymized IP: {st.session_state.anonymized_ip}")
     if st.session_state.anonymized_ip:
         current_time = datetime.now()
@@ -80,6 +77,27 @@ def log_connection(conn, ip_address):
             print(f"Error in log_connection: {str(e)}")
     else:
         print("Failed to anonymize IP")
+
+def get_duration_of_exposition(conn):
+    try:
+        with conn.session as session:
+            result = session.execute(text("""
+                SELECT connection_time, last_activity_time
+                FROM usage_stats
+                WHERE anonymized_ip = :ip
+                ORDER BY connection_time DESC
+                LIMIT 1
+            """), {"ip": st.session_state.anonymized_ip}).fetchone()
+            
+            if result:
+                connection_time, last_activity_time = result
+                duration = last_activity_time - connection_time
+                return duration.total_seconds()
+            else:
+                return None
+    except Exception as e:
+        print(f"Error in get_duration_of_exposition: {str(e)}")
+        return None
 
 def get_average_session_duration(conn):
     return conn.query("""
