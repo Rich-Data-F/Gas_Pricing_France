@@ -17,13 +17,44 @@ import openrouteservice as ors
 from cryptography.fernet import Fernet
 from sqlalchemy import create_engine, text
 from streamlit.runtime.scriptrunner import get_script_run_ctx
+import threading
 
 from pricing_definitions import *
 
+load_dotenv()
 
 st.set_page_config(page_title="Gas Station and Best Price locator", page_icon="⛽", layout="wide")
 
-load_dotenv()
+def log_app_usage(conn):
+    # In your main app code
+    ip_address = get_remote_ip()
+    print(f"Retrieved IP address: {ip_address}")
+    if ip_address:
+        log_connection(conn, ip_address)
+    else:
+        print("Failed to retrieve IP address")
+
+def update_last_activity(conn, anonymized_ip):
+    current_time = datetime.now()
+    try:
+        with conn.session as session:
+            session.execute(text("""
+                UPDATE usage_stats 
+                SET last_activity_time = :current_time
+                WHERE anonymized_ip = :ip
+            """), {"current_time": current_time, "ip": st.session_state.anonymized_ip})
+            session.commit()
+    except Exception as e:
+        print(f"Error in update_last_activity: {str(e)}")
+
+def heartbeat():
+    while True:
+        time.sleep(30)  # Check every 30 seconds
+        if st.session_state.get('active', False):
+            update_last_activity(conn, st.session_state.anonymized_ip)
+        else:
+            break
+
 
 # initialisation of session state entities
 if 'filtered_df' not in st.session_state:
@@ -35,6 +66,13 @@ if 'user_longitude' not in st.session_state:
 map_path=''
 if map_path not in st.session_state:
     st.session_state.map_path=''
+# Initialize session state
+if 'active' not in st.session_state:
+    st.session_state.active = True
+    threading.Thread(target=heartbeat).start()
+#if 'anonymized_ip' not in st.session_state:
+#    st.session_state.anonymized_ip = ''
+
 
 # Create the directory if it doesn't exist
 os.makedirs('Data/usage', exist_ok=True)
@@ -61,9 +99,6 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-# Create the directory if it doesn't exist
-os.makedirs('Data/usage', exist_ok=True)
-
 def test_database_connection(conn):
     try:
         with conn.session as session:
@@ -76,7 +111,7 @@ def test_database_insert(conn):
     try:
         with conn.session as session:
             session.execute(text("""
-                INSERT INTO usage_stats (anonymized_ip, connection_time, last_activity_time) 
+                INSERT INTO usage_stats (st.session_state.anonymized_ip, connection_time, last_activity_time) 
                 VALUES (:ip, :current_time, :current_time)
             """), {"ip": "test_ip", "current_time": datetime.now()})
             session.commit()
@@ -103,14 +138,7 @@ else:
     print("Failed to retrieve IP address, logging as unknown")
     log_connection(conn, "unknown")
 
-def log_app_usage(conn):
-    # In your main app code
-    ip_address = get_remote_ip()
-    print(f"Retrieved IP address: {ip_address}")
-    if ip_address:
-        log_connection(conn, ip_address)
-    else:
-        print("Failed to retrieve IP address")
+
 
 # Get the API keys
 try:
@@ -120,25 +148,11 @@ except ValueError as e:
     st.error(str(e))
     st.stop()
 
-def test_database_insert(conn):
-    try:
-        with conn.session as session:
-            session.execute(text("""
-                INSERT INTO usage_stats (anonymized_ip, connection_time, last_activity_time) 
-                VALUES (:ip, :current_time, :current_time)
-            """), {"ip": "test_ip", "current_time": datetime.now()})
-            session.commit()
-        print("Test insert successful")
-    except Exception as e:
-        print(f"Test insert failed: {str(e)}")
-
-
 def main():
     st.title("Gas Station and Best Price locator")
     
     # Log app usage
     log_app_usage(conn)
-    
 
     folder_path='./Data/'
     file_name='PrixCarburants_instantane.xml'
@@ -177,6 +191,12 @@ def main():
         formatted_datetime = update_datetime.strftime("%d %B %Y à %Hh%M")
         st.write(f"Les données de prix de carburant ont été mises à jour le {formatted_datetime}. Pressez le bouton ci-dessous pour une mise à jour")
 
+    if st.button("I'm done"):
+        st.session_state.active = False
+        update_last_activity(conn, st.session_state.anonymized_ip)
+        st.write("Thank you for using the app. You can now close this tab.")
+        st.stop()
+
     # Address inputs
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -192,6 +212,9 @@ def main():
     print(f"Test query result: {test_query}")
     print(f"Database file path: {db_path}")
     print(f"Database file exists: {os.path.exists(db_path)}")
+
+
+
     
     def debug_database_content(conn):
         content = conn.query("SELECT * FROM usage_stats")
@@ -421,6 +444,8 @@ def main():
                 Please press the 'super recommendation' button to obtain it once the first button and step is actioned")
         
         #sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
 
     # Sidebar for user inputs
     st.sidebar.title("Gas Station Finder Options")

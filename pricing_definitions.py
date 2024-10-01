@@ -59,11 +59,13 @@ def initialize_database(conn):
 
 def log_connection(conn, ip_address):
     print(f"Attempting to log connection for IP: {ip_address}")
+    if 'anonymized_ip' not in st.session_state:
+        st.session_state.anonymized_ip = ''
     if ip_address is None or ip_address == "127.0.0.1":
         ip_address = "unknown"
-    anonymized_ip = anonymize_ip(ip_address)
-    print(f"Anonymized IP: {anonymized_ip}")
-    if anonymized_ip:
+    st.session_state.anonymized_ip = anonymize_ip(ip_address)
+    print(f"Anonymized IP: {st.session_state.anonymized_ip}")
+    if st.session_state.anonymized_ip:
         current_time = datetime.now()
         try:
             with conn.session as session:
@@ -71,7 +73,7 @@ def log_connection(conn, ip_address):
                 session.execute(text("""
                     INSERT INTO usage_stats (anonymized_ip, connection_time, last_activity_time) 
                     VALUES (:ip, :current_time, :current_time)
-                """), {"ip": anonymized_ip, "current_time": current_time})
+                """), {"ip": st.session_state.anonymized_ip, "current_time": current_time})
                 session.commit()
                 print("Session committed successfully")
         except Exception as e:
