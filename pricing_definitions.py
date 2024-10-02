@@ -18,17 +18,40 @@ import json
 import logging
 from sqlalchemy import create_engine, text
 import time
-
+from streamlit.runtime.scriptrunner import get_script_run_ctx
 
 #### definition of functions for logging connections and some stats
 
+
+def test_database_connection(conn):
+    try:
+        with conn.session as session:
+            result = session.execute(text("SELECT 1")).fetchone()
+            print(f"Database connection test result: {result}")
+    except Exception as e:
+        print(f"Database connection error: {str(e)}")
+
+def test_database_insert(conn):
+    try:
+        with conn.session as session:
+            session.execute(text("""
+                INSERT INTO usage_stats (anonymized_ip, connection_time, last_activity_time) 
+                VALUES (:ip, :current_time, :current_time)
+            """), {"ip": "test_ip", "current_time": datetime.now()})
+            session.commit()
+        print("Test insert successful")
+    except Exception as e:
+        print(f"Test insert failed: {str(e)}")
+
 def get_remote_ip():
     try:
-        from streamlit.runtime.scriptrunner import get_script_run_ctx
         ctx = get_script_run_ctx()
         if ctx is None:
             return "127.0.0.1"
-        return ctx.session_info.request.remote_ip
+        if hasattr(ctx, 'session_info'):
+            if hasattr(ctx.session_info, 'client'):
+                return ctx.session_info.client.host
+        return "127.0.0.1"  # Default to localhost if we can't get the IP
     except Exception as e:
         print(f"Error getting remote IP: {str(e)}")
         return "127.0.0.1"
@@ -41,134 +64,265 @@ def anonymize_ip(ip):
         elif ip_obj.version == 6:
             return str(ipaddress.ip_network(f"{ip}/48", strict=False).network_address)
     except ValueError:
+        print(f"Invalid IP address: {ip}")
         return None  # Invalid IP address
 
 def initialize_database(conn):
-    with conn.session as session:
-        session.execute(text("""
-            CREATE TABLE IF NOT EXISTS usage_stats (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                connection_time DATETIME DEFAULT CURRENT_TIMESTAMP,
-                anonymized_ip TEXT,
-                last_activity_time DATETIME DEFAULT CURRENT_TIMESTAMP,
-                session_duration INTEGER DEFAULT 0
-            )
-        """))
-        session.commit()
+    try:
+        with conn.session as session:
+            # Check if the table already exists
+            result = session.execute(text("""
+                SELECT name FROM sqlite_master 
+                WHERE type='table' AND name='usage_stats';
+            """)).fetchone()
+            if result:
+                print("Database table 'usage_stats' already exists.")
+            else:
+                session.execute(text("""
+                    CREATE TABLE IF NOT EXISTS usage_stats (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        anonymized_ip TEXT,
+                        connection_time DATETIME,
+                        last_activity_time DATETIME,
+                        session_duration INTEGER
+                    )
+                """))
+                session.commit()
+                print("Database table 'usage_stats' created successfully.")
+    except Exception as e:
+        print(f"Error initializing database: {str(e)}")
+
+def initialize_database_when_existing(conn):
+    try:
+        with conn.session as session:
+            session.execute(text("""
+                CREATE TABLE usage_stats (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    anonymized_ip TEXT,
+                    connection_time DATETIME,
+                    last_activity_time DATETIME,
+                    session_duration INTEGER
+                )
+            """))
+            session.commit()
+        print("Database initialized successfully")
+    except Exception as e:
+        print(f"Error initializing database: {str(e)}")
+
 
 def log_connection(conn):
-    ip_address = get_remote_ip()
-    print(f"Attempting to log connection for IP: {ip_address}")
-    if ip_address is None or ip_address == "127.0.0.1":
-        ip_address = "unknown"
-#    st.session_state.anonymized_ip = anonymize_ip(ip_address)
-    print(f"Anonymized IP: {st.session_state.anonymized_ip}")
-    if st.session_state.anonymized_ip:
-        current_time = datetime.now()
-        try:
-            with conn.session as session:
-                # Create new session
+    current_time = datetime.now()
+    try:
+        ip_address = get_remote_ip()
+        st.session_state.anonymized_ip = anonymize_ip(ip_address)
+        with conn.session as session:
+            # Check if a connection already exists for this IP today
+            result = session.execute(text("""
+                SELECT id, connection_time, last_activity_time
+                FROM usage_stats
+                WHERE anonymized_ip = :ip
+                AND DATE(connection_time) = DATE(:today)
+                ORDER BY connection_time DESC
+                LIMIT 1
+            """), {"ip": st.session_state.anonymized_ip, "today": current_time.date()}).fetchone()
+            if result:
+                # Ensure connection_time is a datetime object
+                connection_time = result.connection_time
+                if isinstance(connection_time, str):
+                    connection_time = datetime.strptime(connection_time, "%Y-%m-%d %H:%M:%S.%f")
+                
+                # Update existing connection for today
                 session.execute(text("""
-                    INSERT INTO usage_stats (anonymized_ip, connection_time, last_activity_time) 
-                    VALUES (:ip, :current_time, :current_time)
+                    UPDATE usage_stats
+                    SET last_activity_time = :current_time,
+                        session_duration = :duration
+                    WHERE id = :id
+                """), {
+                    "current_time": current_time,
+                    "duration": int((current_time - connection_time).total_seconds()),
+                    "id": result.id
+                })
+                print(f"Updated existing connection for {st.session_state.anonymized_ip}")
+            else:
+                # Insert new connection
+                session.execute(text("""
+                    INSERT INTO usage_stats (anonymized_ip, connection_time, last_activity_time, session_duration) 
+                    VALUES (:ip, :current_time, :current_time, 0)
                 """), {"ip": st.session_state.anonymized_ip, "current_time": current_time})
-                session.commit()
-                print("Session committed successfully")
-        except Exception as e:
-            print(f"Error in log_connection: {str(e)}")
-    else:
-        print("Failed to anonymize IP")
+                print(f"Inserted new connection for {st.session_state.anonymized_ip}")            
+            session.commit()
+        print("Connection logged successfully")
+    except Exception as e:
+        print(f"Error in log_connection: {str(e)}")
+
+def update_last_activity(conn):
+    current_time = datetime.now()
+    try:
+        ip_address = get_remote_ip()
+        st.session_state.anonymized_ip = anonymize_ip(ip_address)
+        with conn.session as session:
+            # Check if a connection already exists for this IP today
+            result = session.execute(text("""
+                SELECT id, connection_time, last_activity_time
+                FROM usage_stats
+                WHERE anonymized_ip = :ip
+                AND DATE(connection_time) = DATE(:today)
+                ORDER BY connection_time DESC
+                LIMIT 1
+            """), {"ip": st.session_state.anonymized_ip, "today": current_time.date()}).fetchone()
+            
+            if result:
+                # Update existing connection for today
+                session.execute(text("""
+                    UPDATE usage_stats
+                    SET last_activity_time = :current_time,
+                        session_duration = :duration
+                    WHERE id = :id
+                """), {
+                    "current_time": current_time,
+                    "duration": int((current_time - result.connection_time).total_seconds()),
+                    "id": result.id
+                })
+                print(f"Updated existing connection for {st.session_state.anonymized_ip}")
+            else:
+                # Insert new connection
+                session.execute(text("""
+                    INSERT INTO usage_stats (anonymized_ip, connection_time, last_activity_time, session_duration) 
+                    VALUES (:ip, :current_time, :current_time, 0)
+                """), {"ip": st.session_state.anonymized_ip, "current_time": current_time})
+                print(f"Inserted new connection for {st.session_state.anonymized_ip}")
+            session.commit()
+        print("Connection logged successfully")
+    except Exception as e:
+        print(f"Error in log_connection: {str(e)}")
+
+
+def cleanup_test_entries(conn):
+    try:
+        with conn.session as session:
+            session.execute(text("""
+                DELETE FROM usage_stats
+                WHERE anonymized_ip = 'test_ip'
+            """))
+            session.commit()
+        print("Cleaned up test entries")
+    except Exception as e:
+        print(f"Error cleaning up test entries: {str(e)}")
 
 def get_duration_of_app_usage(conn):
     try:
         with conn.session as session:
             result = session.execute(text("""
-                SELECT connection_time, last_activity_time
+                SELECT MIN(connection_time) as first_connection, MAX(last_activity_time) as last_activity
                 FROM usage_stats
-                WHERE anonymized_ip = :ip
-                ORDER BY connection_time DESC
-                LIMIT 1
-            """), {"ip": st.session_state.anonymized_ip}).fetchone()
-            
-            if result:
-                connection_time, last_activity_time = result
-                duration = last_activity_time - connection_time
-                return duration.total_seconds(), 
+            """)).fetchone()
+            if result and result.first_connection and result.last_activity:
+                first_connection = result.first_connection
+                last_activity = result.last_activity
+                if isinstance(first_connection, str):
+                    first_connection = datetime.strptime(first_connection, "%Y-%m-%d %H:%M:%S.%f")
+                if isinstance(last_activity, str):
+                    last_activity = datetime.strptime(last_activity, "%Y-%m-%d %H:%M:%S.%f")
+                duration = last_activity - first_connection
+                return duration.total_seconds()
             else:
-                return None
+                return 0
     except Exception as e:
         print(f"Error in get_duration_of_app_usage: {str(e)}")
-        return None
-
-def get_duration_of_app_usage(conn):
-    try:
-        with conn.session as session:
-            result = session.execute(text("""
-                SELECT connection_time, last_activity_time, session_duration
-                FROM usage_stats
-                WHERE anonymized_ip = :ip
-                ORDER BY connection_time DESC
-                LIMIT 1
-            """), {"ip": st.session_state.anonymized_ip}).fetchone()
-            
-            if result:
-                connection_time, last_activity_time, session_duration = result
-                current_duration = (datetime.now() - connection_time).total_seconds()
-                return current_duration, session_duration
-            else:
-                return None, None
-    except Exception as e:
-        print(f"Error in get_duration_of_app_usage: {str(e)}")
-        return None, None
+        return 0
 
 def update_session_duration(conn):
     try:
-        current_duration, _ = get_duration_of_app_usage(conn)
-        if current_duration is not None:
-            with conn.session as session:
+        ip_address = get_remote_ip()
+        st.session_state.anonymized_ip = anonymize_ip(ip_address)
+        current_time = datetime.now()
+        
+        with conn.session as session:
+            result = session.execute(text("""
+                SELECT id, connection_time, last_activity_time
+                FROM usage_stats
+                WHERE anonymized_ip = :ip
+                AND DATE(connection_time) = DATE(:today)
+                ORDER BY connection_time DESC
+                LIMIT 1
+            """), {"ip": st.session_state.anonymized_ip, "today": current_time.date()}).fetchone()
+            
+            if result:
+                connection_time = result.connection_time
+                if isinstance(connection_time, str):
+                    connection_time = datetime.strptime(connection_time, "%Y-%m-%d %H:%M:%S.%f")
+                
+                duration = int((current_time - connection_time).total_seconds())
+                
                 session.execute(text("""
                     UPDATE usage_stats
                     SET session_duration = :duration
-                    WHERE anonymized_ip = :ip
-                    AND connection_time = (
-                        SELECT MAX(connection_time)
-                        FROM usage_stats
-                        WHERE anonymized_ip = :ip
-                    )
-                """), {"duration": current_duration, "ip": st.session_state.anonymized_ip})
+                    WHERE id = :id
+                """), {
+                    "duration": duration,
+                    "id": result.id
+                })
                 session.commit()
-            print(f"Session duration updated: {current_duration} seconds")
-        else:
-            print("No active session found to update duration")
+                print(f"Updated session duration for IP: {st.session_state.anonymized_ip}")
+            else:
+                print(f"No session found for IP: {st.session_state.anonymized_ip}")
     except Exception as e:
         print(f"Error in update_session_duration: {str(e)}")
 
 def get_average_session_duration(conn):
-    return conn.query("""
-        SELECT AVG(session_duration) as avg_duration 
-        FROM usage_stats
-    """).iloc[0]['avg_duration']
+    try:
+        with conn.session as session:
+            result = conn.query("""
+                SELECT AVG(session_duration) as avg_duration 
+                FROM usage_stats
+            """).iloc[0]['avg_duration']
+        print(f"Successfully queried average session duration: {result}")
+        return result
+    except Exception as e:
+        print(f"Error in get_average_session_duration: {str(e)}")
+        return None
 
 def get_total_session_duration(conn):
-    return conn.query("""
-        SELECT SUM(session_duration) as total_duration 
-        FROM usage_stats
-    """).iloc[0]['total_duration']
+    try:
+        result = conn.query("""
+            SELECT SUM(session_duration) as total_duration 
+            FROM usage_stats
+        """).iloc[0]['total_duration']
+        print(f"Successfully queried total session duration: {result}")
+        return result
+    except Exception as e:
+        print(f"Error in get_total_session_duration: {str(e)}")
+        return None
 
 def get_longest_session(conn):
-    return conn.query("""
-        SELECT MAX(session_duration) as max_duration 
-        FROM usage_stats
-    """).iloc[0]['max_duration']
+    try:
+        result = conn.query("""
+            SELECT MAX(session_duration) as max_duration 
+            FROM usage_stats
+        """).iloc[0]['max_duration']
+        print(f"Successfully queried longest session duration: {result}")
+        return result
+    except Exception as e:
+        print(f"Error in get_longest_session: {str(e)}")
+        return None
 
 def get_total_connections(conn):
-    return conn.query("SELECT COUNT(*) as total FROM usage_stats").iloc[0]['total']
+    try:
+        result = conn.query("SELECT COUNT(*) as total FROM usage_stats").iloc[0]['total']
+        print(f"Successfully queried total connections: {result}")
+        return result
+    except Exception as e:
+        print(f"Error in get_total_connections: {str(e)}")
+        return None
 
 def get_unique_users(conn):
-#    return conn.query("SELECT COUNT(DISTINCT anonymized_ip) as unique_users FROM usage_stats").iloc[0]['unique_users']
-    result = conn.query("SELECT COUNT(DISTINCT anonymized_ip) as unique_users FROM usage_stats").iloc[0]['unique_users']
-    print(f"Unique users query result: {result}")
-    return result if result is not None else 0
+    try:
+        result = conn.query("SELECT COUNT(DISTINCT anonymized_ip) as unique_users FROM usage_stats").iloc[0]['unique_users']
+        print(f"Successfully queried unique users: {result}")
+        return result if result is not None else 0
+    except Exception as e:
+        print(f"Error in get_unique_users: {str(e)}")
+        return 0
 
 def display_usage_stats(conn):
     total_connections = get_total_connections(conn)
@@ -182,8 +336,31 @@ def display_usage_stats(conn):
         st.sidebar.write(f"Average session duration: {avg_duration:.2f} seconds")
     else:
         st.sidebar.write("Average session duration: N/A")
-    st.sidebar.write(f"Total session duration: {total_duration} seconds")
-    st.sidebar.write(f"Total session duration: {longest_duration} seconds")
+    # Convert total_duration to days, hours, minutes, seconds
+    if total_duration is not None:
+        total_duration_td = timedelta(seconds=int(total_duration))
+        days, remainder = divmod(total_duration_td.total_seconds(), 86400)
+        hours, remainder = divmod(remainder, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        st.sidebar.write(f"Total session duration: {int(days)} days, {int(hours)} hours, {int(minutes)} minutes, {int(seconds)} seconds")
+    else:
+        st.sidebar.write("Total session duration: N/A")
+    
+    # Convert longest_duration to hours, minutes, seconds
+    if longest_duration is not None:
+        longest_duration_td = timedelta(seconds=int(longest_duration))
+        hours, remainder = divmod(longest_duration_td.total_seconds(), 3600)
+        minutes, seconds = divmod(remainder, 60)
+        st.sidebar.write(f"Longest session duration: {int(hours)} hours, {int(minutes)} minutes, {int(seconds)} seconds")
+    else:
+        st.sidebar.write("Longest session duration: N/A")
+    # Fetch and display the database content as a dataframe
+    try:
+        df = pd.read_sql_query("SELECT * FROM usage_stats", conn.session.connection())
+        st.sidebar.write("Database Content:")
+        st.sidebar.dataframe(df)
+    except Exception as e:
+        st.sidebar.error(f"Error fetching database content: {str(e)}")
 
 ######## end of logging tracking
 
@@ -198,7 +375,6 @@ def decrypt_env():
 
 def get_api_key(key_name):
     print(f"Attempting to get API key for: {key_name}")
-    
     # Try Streamlit secrets
     try:
         api_key = st.secrets[key_name]
@@ -207,7 +383,6 @@ def get_api_key(key_name):
             return api_key
     except (FileNotFoundError, KeyError):
         print(f"Key not found in Streamlit secrets, trying decrypted .env")
-    
     # Try decrypted .env file
     try:
         decrypted_env = decrypt_env()  # Ensure your decrypt_env function is defined
@@ -219,14 +394,11 @@ def get_api_key(key_name):
                     return api_key
     except Exception as e:
         print(f"Error decrypting .env file: {e}")
-    
     # If we've reached this point, both Streamlit secrets and decrypted .env have failed
     print(f"Key not found in Streamlit secrets or decrypted .env, trying regular .env")
-    
     # Only load from regular .env if previous methods failed
     load_dotenv()
     api_key = os.getenv(key_name)
-    
     if api_key:
         print(f"API key found in regular .env.")
         return api_key
@@ -234,24 +406,20 @@ def get_api_key(key_name):
         print(f"API key not found in any source.")
         return None
 
-
 # HubSpot API configuration
 BASE_URL = "https://api.hubapi.com"
 #ACCESS_TOKEN = os.getenv("HUBSPOT_API_KEY")
 
 def submit_ticket(category, subject, description, priority=None):
     url = "https://api.hubapi.com/crm/v3/objects/tickets"
-    
     ACCESS_TOKEN = os.environ.get('HUBSPOT_API_KEY')
     if not ACCESS_TOKEN:
         logging.error("ACCESS_TOKEN is not set or empty")
         return False, "Error: ACCESS_TOKEN is not set or empty"
-
     headers = {
         "Authorization": f"Bearer {ACCESS_TOKEN}",
         "Content-Type": "application/json"
     }
-    
     data = {
         "properties": {
             "subject": subject,
@@ -261,10 +429,8 @@ def submit_ticket(category, subject, description, priority=None):
             "hs_ticket_category": category
         }
     }
-    
     if priority:
         data["properties"]["hs_ticket_priority"] = priority
-
     try:
         logging.info(f"Submitting ticket: {data}")
         response = requests.post(url, json=data, headers=headers)

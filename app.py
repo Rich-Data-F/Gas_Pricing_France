@@ -19,7 +19,6 @@ from sqlalchemy import create_engine, text
 from streamlit.runtime.scriptrunner import get_script_run_ctx
 import threading
 import time
-import ipaddress
 from pricing_definitions import *
 
 load_dotenv()
@@ -34,19 +33,6 @@ def log_app_usage(conn):
         log_connection(conn)
     else:
         print("Failed to retrieve IP address")
-
-def update_last_activity(conn):
-    current_time = datetime.now()
-    try:
-        with conn.session as session:
-            session.execute(text("""
-                UPDATE usage_stats
-                SET last_activity_time = :current_time
-                WHERE anonymized_ip = :ip
-            """), {"current_time": current_time, "ip": st.session_state.anonymized_ip})
-            session.commit()
-    except Exception as e:
-        print(f"Error in update_last_activity: {str(e)}")
 
 #def heartbeat():
 #    while st.session_state.get('active',True):
@@ -82,34 +68,9 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-
-def test_database_connection(conn):
-    try:
-        with conn.session as session:
-            result = session.execute(text("SELECT 1")).fetchone()
-            print(f"Database connection test result: {result}")
-    except Exception as e:
-        print(f"Database connection error: {str(e)}")
-
-def test_database_insert(conn):
-    try:
-        with conn.session as session:
-            session.execute(text("""
-                INSERT INTO usage_stats (anonymized_ip, connection_time, last_activity_time) 
-                VALUES (:ip, :current_time, :current_time)
-            """), {"ip": "test_ip", "current_time": datetime.now()})
-            session.commit()
-        print("Test insert successful")
-    except Exception as e:
-        print(f"Test insert failed: {str(e)}")
-
 # Use a relative path to the database file
 db_path = os.path.join('Data', 'usage', 'usage_stats.db')
 conn = st.connection('sqlite', type='sql', url=f"sqlite:///{db_path}")
-
-# Initialize the database
-initialize_database(conn)
-
 
 # initialisation of session state entities
 if 'filtered_df' not in st.session_state:
@@ -133,20 +94,29 @@ if 'radius_search' not in st.session_state:
     st.session_state.radius_search = 50  # Default value, adjust as needed
 if 'anonymized_ip' not in st.session_state:
     ip_address = get_remote_ip()
+    print(f"Retrieved IP address: {ip_address}")
     st.session_state.anonymized_ip = anonymize_ip(ip_address)
+    print(f"Anonymized address: {st.session_state.anonymized_ip}")
     log_connection(conn)
 
-# Call this function after creating the connection
-test_database_connection(conn)
-test_database_insert(conn)
+
+# Initialize the database
+initialize_database(conn)
+
+# Clean up old test entries
+cleanup_test_entries(conn)
+
+# Test database connection
+#test_database_insert(conn) #skipped to avoid creation of test_ip insertions
 
 # Log the connection
 ip_address = get_remote_ip()
+print(f"Retrieved IP address: {ip_address}")
 if ip_address:
+    st.session_state.anonymized_ip = anonymize_ip(ip_address)
     log_connection(conn)
 else:
-    print("Failed to retrieve IP address, logging as unknown")
-    log_connection(conn)
+    print("Failed to retrieve IP address")
 
 # Get the API keys
 try:
@@ -218,9 +188,6 @@ def main():
     print(f"Test query result: {test_query}")
     print(f"Database file path: {db_path}")
     print(f"Database file exists: {os.path.exists(db_path)}")
-
-
-
     
     def debug_database_content(conn):
         content = conn.query("SELECT * FROM usage_stats")
@@ -430,13 +397,15 @@ def main():
                 
                 # Create and display the new map
                 if not super_filters.empty:
-                    st.subheader("the top 5 recommended stations")
-                    st.write("5 lowest costs stations circled in green ")
-                    map_with_highlights = create_map_filtered_stations_with_highlights(super_filters, user_latitude, user_longitude, st.session_state.selected_gas_type)
-                    st.components.v1.html(map_with_highlights._repr_html_(), width=1500, height=1200)
-                    st.subheader("Super Recommendation Map (40 closest stations)")
-                    super_map = create_super_filter_map(user_address, user_latitude, user_longitude, super_filters, st.session_state.selected_gas_type)
-                    folium_static(super_map, width=1500, height=1200)
+                    col4, col5 = st.columns(2)
+                    with col4:
+                        st.write("5 lowest costs stations circled in green")
+                        map_with_highlights = create_map_filtered_stations_with_highlights(super_filters, user_latitude, user_longitude, st.session_state.selected_gas_type)
+                        st.components.v1.html(map_with_highlights._repr_html_(), width=700, height=600)
+                    with col5:
+                        st.write("40 closest stations")
+                        super_map = create_super_filter_map(user_address, user_latitude, user_longitude, super_filters, st.session_state.selected_gas_type)
+                        folium_static(super_map, width=700, height=600)
                 else:
                     st.warning("No stations found for super recommendation.")
                 
@@ -544,7 +513,7 @@ def main():
                 else:
                     st.error(message)
 
-    if st.button("I'm done"):
+    if st.toggle("I'm done"):
         st.session_state.active = False
         update_session_duration(conn)
         #if duration is not None:
