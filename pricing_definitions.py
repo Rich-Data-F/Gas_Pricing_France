@@ -24,13 +24,14 @@ import time
 
 def get_remote_ip():
     try:
+        from streamlit.runtime.scriptrunner import get_script_run_ctx
         ctx = get_script_run_ctx()
         if ctx is None:
-            return None
+            return "127.0.0.1"
         return ctx.session_info.request.remote_ip
     except Exception as e:
         print(f"Error getting remote IP: {str(e)}")
-        return None
+        return "127.0.0.1"
 
 def anonymize_ip(ip):
     try:
@@ -78,7 +79,7 @@ def log_connection(conn):
     else:
         print("Failed to anonymize IP")
 
-def get_duration_of_exposition(conn):
+def get_duration_of_app_usage(conn):
     try:
         with conn.session as session:
             result = session.execute(text("""
@@ -92,12 +93,55 @@ def get_duration_of_exposition(conn):
             if result:
                 connection_time, last_activity_time = result
                 duration = last_activity_time - connection_time
-                return duration.total_seconds()
+                return duration.total_seconds(), 
             else:
                 return None
     except Exception as e:
-        print(f"Error in get_duration_of_exposition: {str(e)}")
+        print(f"Error in get_duration_of_app_usage: {str(e)}")
         return None
+
+def get_duration_of_app_usage(conn):
+    try:
+        with conn.session as session:
+            result = session.execute(text("""
+                SELECT connection_time, last_activity_time, session_duration
+                FROM usage_stats
+                WHERE anonymized_ip = :ip
+                ORDER BY connection_time DESC
+                LIMIT 1
+            """), {"ip": st.session_state.anonymized_ip}).fetchone()
+            
+            if result:
+                connection_time, last_activity_time, session_duration = result
+                current_duration = (datetime.now() - connection_time).total_seconds()
+                return current_duration, session_duration
+            else:
+                return None, None
+    except Exception as e:
+        print(f"Error in get_duration_of_app_usage: {str(e)}")
+        return None, None
+
+def update_session_duration(conn):
+    try:
+        current_duration, _ = get_duration_of_app_usage(conn)
+        if current_duration is not None:
+            with conn.session as session:
+                session.execute(text("""
+                    UPDATE usage_stats
+                    SET session_duration = :duration
+                    WHERE anonymized_ip = :ip
+                    AND connection_time = (
+                        SELECT MAX(connection_time)
+                        FROM usage_stats
+                        WHERE anonymized_ip = :ip
+                    )
+                """), {"duration": current_duration, "ip": st.session_state.anonymized_ip})
+                session.commit()
+            print(f"Session duration updated: {current_duration} seconds")
+        else:
+            print("No active session found to update duration")
+    except Exception as e:
+        print(f"Error in update_session_duration: {str(e)}")
 
 def get_average_session_duration(conn):
     return conn.query("""
@@ -131,6 +175,7 @@ def display_usage_stats(conn):
     unique_users = get_unique_users(conn)
     avg_duration = get_average_session_duration(conn)
     total_duration = get_total_session_duration(conn)
+    longest_duration = get_longest_session(conn)
     st.sidebar.write(f"Total connections: {total_connections}")
     st.sidebar.write(f"Unique users: {unique_users}")
     if avg_duration is not None:
@@ -138,6 +183,7 @@ def display_usage_stats(conn):
     else:
         st.sidebar.write("Average session duration: N/A")
     st.sidebar.write(f"Total session duration: {total_duration} seconds")
+    st.sidebar.write(f"Total session duration: {longest_duration} seconds")
 
 ######## end of logging tracking
 

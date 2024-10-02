@@ -16,10 +16,10 @@ import logging
 import openrouteservice as ors
 from cryptography.fernet import Fernet
 from sqlalchemy import create_engine, text
-#from streamlit.runtime.scriptrunner import get_script_run_ctx
+from streamlit.runtime.scriptrunner import get_script_run_ctx
 import threading
 import time
-
+import ipaddress
 from pricing_definitions import *
 
 load_dotenv()
@@ -31,7 +31,7 @@ def log_app_usage(conn):
     ip_address = get_remote_ip()
     print(f"Retrieved IP address: {ip_address}")
     if ip_address:
-        log_connection(conn, ip_address)
+        log_connection(conn)
     else:
         print("Failed to retrieve IP address")
 
@@ -40,7 +40,7 @@ def update_last_activity(conn):
     try:
         with conn.session as session:
             session.execute(text("""
-                UPDATE usage_stats 
+                UPDATE usage_stats
                 SET last_activity_time = :current_time
                 WHERE anonymized_ip = :ip
             """), {"current_time": current_time, "ip": st.session_state.anonymized_ip})
@@ -48,10 +48,10 @@ def update_last_activity(conn):
     except Exception as e:
         print(f"Error in update_last_activity: {str(e)}")
 
-def heartbeat():
-    while st.session_state.get('active',True):
-        time.sleep(30)  # Check every 30 seconds
-        update_last_activity(conn)
+#def heartbeat():
+#    while st.session_state.get('active',True):
+#        time.sleep(30)  # Check every 30 seconds
+#        update_session_duration(conn)
 
 
 #if 'anonymized_ip' not in st.session_state:
@@ -63,8 +63,6 @@ os.makedirs('Data/usage', exist_ok=True)
 # Use a relative path to the database file
 db_path = os.path.join('Data', 'usage', 'usage_stats.db')
 conn = st.connection('sqlite', type='sql', url=f"sqlite:///{db_path}")
-
-
 
 st.markdown("""
     <style>
@@ -122,10 +120,13 @@ if 'user_longitude' not in st.session_state:
     st.session_state['user_longitude'] = None
 if 'map_path' not in st.session_state:
     st.session_state.map_path=''
+if 'show_usage_stats' not in st.session_state:
+    st.session_state.show_usage_stats = False
 # Initialize session state
-if 'active' not in st.session_state:
-    st.session_state.active = True
-    threading.Thread(target=heartbeat).start()
+#if 'active' not in st.session_state:
+#    st.session_state.active = True
+#    threading.Thread(target=heartbeat).start()
+# use Streamlit's run_on_save feature
 if 'selected_gas_type' not in st.session_state:
     st.session_state.selected_gas_type = None
 if 'radius_search' not in st.session_state:
@@ -157,7 +158,10 @@ except ValueError as e:
 
 def main():
     st.title("Gas Station and Best Price locator")
-    
+
+    if 'last_activity_update' not in st.session_state:
+        st.session_state.last_activity_update = datetime.now()
+
     # Log app usage
     log_app_usage(conn)
 
@@ -198,18 +202,6 @@ def main():
         # Format it as desired
         formatted_datetime = update_datetime.strftime("%d %B %Y à %Hh%M")
         st.write(f"Les données de prix de carburant ont été mises à jour le {formatted_datetime}. Pressez le bouton ci-dessous pour une mise à jour")
-
-
-    if st.button("I'm done"):
-        st.session_state.active = False
-        update_last_activity(conn)
-        duration = get_duration_of_exposition(conn)
-        if duration is not None:
-            st.write(f"Duration of exposition: {duration:.2f} seconds")
-        else:
-            st.write("Duration of exposition: Not available")
-        st.write("Thank you for using the app. You can now close this tab.")
-        st.stop()
 
     # Address inputs
     col1, col2, col3 = st.columns(3)
@@ -454,12 +446,15 @@ def main():
         else:
             st.error("Initial step 'Find Gas stations' should be processed before actioning a super recommendation")
     else:
-        st.write("A more precise and tailored recommendation can be made using extra information provided in left column.\
-                Please press the 'super recommendation' button to obtain it once the first button and step is actioned")
+        st.write("A more precise and tailored recommendation can be made using extra information you provide in left column.\
+                Please press the 'super recommendation' button to obtain it once the first 'find gas stations' button has been actioned")
         
         #sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-
+    current_time = datetime.now()
+    if (current_time - st.session_state.last_activity_update).total_seconds() > 30:
+        update_last_activity(conn)
+        st.session_state.last_activity_update = current_time
 
     # Sidebar for user inputs
     st.sidebar.title("Gas Station Finder Options")
@@ -472,7 +467,7 @@ def main():
     st.sidebar.subheader("Optional Filters")
 
     # a. Outstanding autonomy
-    autonomy = st.sidebar.slider("Remaining Autonomy (km)", min_value=5, max_value=125, value=45, step=1)
+    autonomy = st.sidebar.slider("Remaining vehicule autonomy (km)", min_value=5, max_value=125, value=45, step=1)
 
     # b. Toilets required
     #toilets_required = st.sidebar.radio("Toilets Required", [True, False], index=0)
@@ -499,11 +494,11 @@ def main():
 
     # Display the visitor count
     st.sidebar.write(f"This application has been used {get_unique_users(conn)} times.")
+    
     # Optional: Display the extra stats
-    stats = st.sidebar.checkbox("App usage extra statistics")
-    if stats:
+    extra_stats=st.sidebar.toggle("App usage extra statistics")
+    if extra_stats:
         display_usage_stats(conn)
-    else: st.sidebar.write("extra stats available on demand'")
 
     st.sidebar.write("This app allows you to submit customer feedback directly to our HubSpot CRM.")
     with st.sidebar.expander("Submit Feedback"):
@@ -548,6 +543,17 @@ def main():
                     st.success(message)
                 else:
                     st.error(message)
+
+    if st.button("I'm done"):
+        st.session_state.active = False
+        update_session_duration(conn)
+        #if duration is not None:
+        #    st.write(f"App usage duration: {duration:.2f} seconds")
+        #else:
+        #    st.write("App usage duration: Not available")
+        st.write("Thank you for using the app. You can now close this tab.")
+        st.stop()
+
 
 if __name__ == "__main__":
     main()
