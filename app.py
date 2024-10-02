@@ -21,6 +21,7 @@ import threading
 import time
 from pricing_definitions import *
 
+
 load_dotenv()
 
 st.set_page_config(page_title="Gas Station and Best Price locator", page_icon="⛽", layout="wide")

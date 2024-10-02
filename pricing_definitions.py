@@ -45,16 +45,17 @@ def test_database_insert(conn):
 
 def get_remote_ip():
     try:
-        ctx = get_script_run_ctx()
-        if ctx is None:
+        # Try to get the IP from Streamlit's internal state
+        from streamlit.server.server import Server
+        return Server.get_current()._get_websocket_headers().get("X-Forwarded-For", "unknown")
+    except:
+        # If that fails, try an alternative method
+        try:
+            import streamlit as st
+            return st.query_params.get("client_ip", ["unknown"])[0]
+        except:
+            # If all else fails, return a default value
             return "127.0.0.1"
-        if hasattr(ctx, 'session_info'):
-            if hasattr(ctx.session_info, 'client'):
-                return ctx.session_info.client.host
-        return "127.0.0.1"  # Default to localhost if we can't get the IP
-    except Exception as e:
-        print(f"Error getting remote IP: {str(e)}")
-        return "127.0.0.1"
 
 def anonymize_ip(ip):
     try:
@@ -195,7 +196,6 @@ def update_last_activity(conn):
         print("Connection logged successfully")
     except Exception as e:
         print(f"Error in log_connection: {str(e)}")
-
 
 def cleanup_test_entries(conn):
     try:
