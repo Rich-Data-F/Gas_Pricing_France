@@ -19,7 +19,7 @@ import logging
 from sqlalchemy import create_engine, text
 import time
 from streamlit.runtime.scriptrunner import get_script_run_ctx
-
+from streamlit.web.server.websocket_headers import  *
 #### definition of functions for logging connections and some stats
 
 
@@ -43,19 +43,19 @@ def test_database_insert(conn):
     except Exception as e:
         print(f"Test insert failed: {str(e)}")
 
-def get_remote_ip():
+def get_remote_ip() -> str:
+    """Get remote ip."""
     try:
-        # Try to get the IP from Streamlit's internal state
-        from streamlit.server.server import Server
-        return Server.get_current()._get_websocket_headers().get("X-Forwarded-For", "unknown")
-    except:
-        # If that fails, try an alternative method
-        try:
-            import streamlit as st
-            return st.query_params.get("client_ip", ["unknown"])[0]
-        except:
-            # If all else fails, return a default value
-            return "127.0.0.1"
+        ctx = get_script_run_ctx()
+        if ctx is None:
+            return None
+        session_info = runtime.get_instance().get_client(ctx.session_id)
+        if session_info is None:
+            return None
+    except Exception as e:
+        return None
+    print(session_info.request.remote_ip)
+    return session_info.request.remote_ip
 
 def anonymize_ip(ip):
     try:

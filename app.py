@@ -20,7 +20,8 @@ from streamlit.runtime.scriptrunner import get_script_run_ctx
 import threading
 import time
 from pricing_definitions import *
-
+from streamlit.web.server.websocket_headers import  *
+#from streamlit.web.server.server import get_client
 
 load_dotenv()
 
@@ -29,11 +30,11 @@ st.set_page_config(page_title="Gas Station and Best Price locator", page_icon="â
 def log_app_usage(conn):
     # In your main app code
     ip_address = get_remote_ip()
-    print(f"Retrieved IP address: {ip_address}")
+    print(f"Retrieved IP address from log_app_usage / get remote: {ip_address}")
     if ip_address:
         log_connection(conn)
     else:
-        print("Failed to retrieve IP address")
+        print("Failed to retrieve IP address from log_app_usage / get remote")
 
 #def heartbeat():
 #    while st.session_state.get('active',True):
@@ -73,6 +74,7 @@ st.markdown("""
 db_path = os.path.join('Data', 'usage', 'usage_stats.db')
 conn = st.connection('sqlite', type='sql', url=f"sqlite:///{db_path}")
 
+
 # initialisation of session state entities
 if 'filtered_df' not in st.session_state:
     st.session_state['filtered_df'] = None
@@ -95,9 +97,9 @@ if 'radius_search' not in st.session_state:
     st.session_state.radius_search = 50  # Default value, adjust as needed
 if 'anonymized_ip' not in st.session_state:
     ip_address = get_remote_ip()
-    print(f"Retrieved IP address: {ip_address}")
+    print(f"Retrieved IP address from get_remote_ip: {ip_address}")
     st.session_state.anonymized_ip = anonymize_ip(ip_address)
-    print(f"Anonymized address: {st.session_state.anonymized_ip}")
+    print(f"Anonymized address from anonymize_ip fcn: {st.session_state.anonymized_ip}")
     log_connection(conn)
 
 
@@ -112,12 +114,11 @@ cleanup_test_entries(conn)
 
 # Log the connection
 ip_address = get_remote_ip()
-print(f"Retrieved IP address: {ip_address}")
 if ip_address:
     st.session_state.anonymized_ip = anonymize_ip(ip_address)
     log_connection(conn)
 else:
-    print("Failed to retrieve IP address")
+    print("Failed to retrieve IP address from get_forwarded_ip")
 
 # Get the API keys
 try:
@@ -129,17 +130,18 @@ except ValueError as e:
 
 def main():
     st.title("Gas Station and Best Price locator")
-
+#    headers=st.context.headers.get_all
+#    client = get_client()
+    # st.write(st.session_state)
+    #print(f"headers {headers}")
+    #print(f"hearders content:{st.context.headers.get_all}")
+    #print(f"hearders content:{st.context.headers.get_all()}")
     if 'last_activity_update' not in st.session_state:
         st.session_state.last_activity_update = datetime.now()
-
     # Log app usage
     log_app_usage(conn)
-
-
     folder_path='./Data/'
     file_name='PrixCarburants_instantane.xml'
-
     file_info = get_file_info(folder_path, file_name)
     # Parse the date and time strings back into a datetime object
     update_datetime = datetime.strptime(f"{file_info['creation_date']} {file_info['creation_time']}", "%Y-%m-%d %H:%M:%S")
@@ -466,10 +468,10 @@ def main():
     st.sidebar.write(f"This application has been used {get_unique_users(conn)} times.")
     
     # Optional: Display the extra stats
-    extra_stats=st.sidebar.toggle("App usage extra statistics")
-    if extra_stats:
-        display_usage_stats(conn)
-
+    if len(st.session_state.anonymized_ip)<10:
+        extra_stats=st.sidebar.toggle("App usage extra statistics")
+        if extra_stats:
+            display_usage_stats(conn)
     st.sidebar.write("This app allows you to submit customer feedback directly to our HubSpot CRM.")
     with st.sidebar.expander("Submit Feedback"):
         st.title("Submit a Ticket")
