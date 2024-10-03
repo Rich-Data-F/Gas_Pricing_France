@@ -14,4 +14,8 @@ openrouteservice
 cryptography
 python-dotenv
 sqlalchemy
-heartbeat
+#heartbeat
+
+#specific to the importation of file to Gqiery
+xmltodict
+google-cloud-bigquery

@@ -445,24 +445,6 @@ def submit_ticket(category, subject, description, priority=None):
         logging.error(f"Error submitting ticket: {str(e)}")
         return False, f"Error submitting ticket: {str(e)}"
 
-def submit_feedback(category, subject, body, rating):
-    url = "https://api.hubapi.com/crm/v3/objects/feedback_submissions"
-    headers = {
-        "Authorization": f"Bearer {YOUR_ACCESS_TOKEN}",
-        "Content-Type": "application/json"
-    }
-    data = {
-        "properties": {
-            "hs_timestamp": datetime.utcnow().isoformat() + "Z",
-            "hs_feedback_source": "Streamlit App",
-            "hs_feedback_subject": f"{category}: {subject}",
-            "hs_feedback_body": body,
-#            "feedback_category": category,
-            "hs_feedback_rating": str(rating)
-        }
-    }
-    response = requests.post(url, json=data, headers=headers)
-    return response.status_code == 200
 
 def get_hubspot_properties():
     """Retrieve properties for feedback submissions from HubSpot."""
@@ -478,36 +460,6 @@ def get_hubspot_properties():
         return True, properties
     except requests.exceptions.RequestException as e:
         return False, f"Error retrieving properties: {str(e)}"
-
-def submit_feedback(category, subject, body, rating):
-    """Submit feedback to HubSpot."""
-    url = f"{BASE_URL}/crm/v3/objects/feedback_submissions/batch/create"
-    headers = {
-        "Authorization": f"Bearer {ACCESS_TOKEN}",
-        "Content-Type": "application/json"
-    }
-
-    data = {
-        "inputs": [
-            {
-                "properties": {
-                    "hs_timestamp": datetime.utcnow().isoformat() + "Z",
-                    "hs_feedback_source": "Streamlit App",
-                    "hs_feedback_subject": f"{category}: {subject}",
-                    "hs_feedback_body": body,
-                    "hs_feedback_rating": str(rating)
-                }
-            }
-        ]
-    }
-
-    try:
-        response = requests.post(url, headers=headers, json=data)
-        response.raise_for_status()
-        return True, "Feedback submitted successfully!"
-    except requests.exceptions.RequestException as e:
-        return False, f"Error submitting feedback: {str(e)}"
-
 
 def get_api_key(key_name):
     # First, try to get the API key from Streamlit secrets

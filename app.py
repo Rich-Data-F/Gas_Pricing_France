@@ -45,7 +45,6 @@ def log_app_usage(conn):
 #if 'anonymized_ip' not in st.session_state:
 #    st.session_state.anonymized_ip = ''
 
-
 # Create the directory if it doesn't exist
 os.makedirs('Data/usage', exist_ok=True)
 # Use a relative path to the database file
