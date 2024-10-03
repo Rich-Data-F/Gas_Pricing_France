@@ -468,7 +468,7 @@ def main():
     st.sidebar.write(f"This application has been used {get_unique_users(conn)} times.")
     
     # Optional: Display the extra stats
-    if len(st.session_state.anonymized_ip)<10:
+    if st.session_state.anonymized_ip == '127.0.0.0':
         extra_stats=st.sidebar.toggle("App usage extra statistics")
         if extra_stats:
             display_usage_stats(conn)
