@@ -46,11 +46,11 @@ load_dotenv()
 # Now you can access the environment variable
 credentials_path = os.getenv('GOOGLE_APPLICATION_CREDENTIALS')
 
-project_id="petrol-stations-435907"
-dataset_id='petrol-stations-435907.Petrol_Station_Pricing'
-table_id=f"gas_pricing_from_datasource_{datetime.today().strftime('%Y_%m_%d')}"
+project_id=os.getenv('PROJECT_ID')
+dataset_id=os.getenv('DATASET_ID')
+table_id=f"gas_pricing_from_opendata_{datetime.today().strftime('%Y_%m_%d')}"
 # Use the credentials in your BigQuery client initialization
-client = bigquery.Client(project="petrol-stations-435907")
+client = bigquery.Client(project=os.getenv('PROJECT_ID'))
 job_config = bigquery.LoadJobConfig()
 job_config.source_format = bigquery.SourceFormat.NEWLINE_DELIMITED_JSON
 job_config.autodetect = True
