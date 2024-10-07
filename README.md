@@ -21,3 +21,7 @@ https://developers.hubspot.com/docs/api/private-apps
 * Instead of storing the full IP address, we do mask the last octet (for IPv4) or the last 80 bits (for IPv6), similarly to Google Analytics' IP anonymization technique.
 
 
+A specific script was created to a) parse the xml file into a json file, and b) upload the json file onto BigQuery*.
+
+To achieve this, an Application Default Credentials (ADC) file was created using Google Cloud SDK shell. 
+Command 'gcloud auth application-default login' saves an 'application_default_credentials.json', path to which is indicated in environment file.
