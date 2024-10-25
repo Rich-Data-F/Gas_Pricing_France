@@ -16,6 +16,9 @@ python-dotenv
 sqlalchemy
 bcrypt
 #heartbeat
+#pathlib
+bs4
+#shutil
 
 #specific to the importation of file to Gqiery
 xmltodict
