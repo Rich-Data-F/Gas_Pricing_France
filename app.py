@@ -37,7 +37,7 @@ def init_users_db():
     os.makedirs('Data', exist_ok=True)
     # Check if the database file exists
     if not os.path.exists('Data/users.db'):
-        conn = sqlite3.connect('Data','users.db')
+        conn = sqlite3.connect(os.path.join('Data','users.db'))
         c = conn.cursor()
         c.execute('''CREATE TABLE IF NOT EXISTS users
                      (username TEXT PRIMARY KEY, password TEXT, role TEXT)''')
