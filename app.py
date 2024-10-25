@@ -112,7 +112,7 @@ if 'new_role' not in st.session_state:
     st.session_state.new_role = None
 
 def login(username, password):
-    conn = sqlite3.connect('users.db')
+    conn = sqlite3.connect(os.path.join('Data', 'users.db'))
     c = conn.cursor()
     c.execute("SELECT password, role FROM users WHERE username = ?", (username,))
     user = c.fetchone()
@@ -124,7 +124,7 @@ def login(username, password):
     return False
 
 def signup(username, password):
-    conn = sqlite3.connect('users.db')
+    conn = sqlite3.connect(os.path.join('Data', 'users.db'))
     c = conn.cursor()
     c.execute("SELECT * FROM users WHERE username = ?", (username,))
     if c.fetchone():
@@ -138,7 +138,7 @@ def signup(username, password):
     return True
 
 def reset_password(username, new_password):
-    conn = sqlite3.connect('users.db')
+    conn = sqlite3.connect(os.path.join('Data', 'users.db'))
     c = conn.cursor()
     c.execute("SELECT * FROM users WHERE username = ?", (username,))
     if c.fetchone() is None:
@@ -152,7 +152,7 @@ def reset_password(username, new_password):
 
 def fetch_users():
     # Simulate fetching users from a database
-    conn = sqlite3.connect('users.db')
+    conn = sqlite3.connect(os.path.join('Data', 'users.db'))
     c = conn.cursor()
     c.execute("SELECT username FROM users")
     users = [row[0] for row in c.fetchall()]
@@ -179,7 +179,7 @@ def admin_required(func):
 
 def logout():
     if st.session_state.user:
-        conn = sqlite3.connect('Data/users.db')
+        conn = sqlite3.connect(os.path.join('Data', 'users.db'))
         c = conn.cursor()
         logout_time = datetime.now()
         c.execute("UPDATE connection_logs SET logout_time = ? WHERE username = ? AND login_time = ?",
@@ -192,7 +192,7 @@ def logout():
     st.sidebar.success("Logged out successfully")
 
 def print_users():
-    conn = sqlite3.connect('Data','users.db')
+    conn = sqlite3.connect(os.path.join('Data', 'users.db'))
     c = conn.cursor()
     c.execute("SELECT username, role FROM users")
     users = c.fetchall()
@@ -222,7 +222,7 @@ def change_user_role():
     )
     if st.button("Change Role"):
         # Simulate updating the user's role in the database
-        conn = sqlite3.connect('users.db')
+        conn = sqlite3.connect(os.path.join('Data', 'users.db'))
         c = conn.cursor()
         c.execute("UPDATE users SET role = ? WHERE username = ?", (new_role, selected_user))
         conn.commit()
