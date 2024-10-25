@@ -32,21 +32,25 @@ ADMIN_ROLE = 'admin'
 
 # Initialize SQLite database
 
-def init_db():
-    conn = sqlite3.connect('users.db')
-    c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS users
-                 (username TEXT PRIMARY KEY, password TEXT, role TEXT)''')
-    c.execute('''CREATE TABLE IF NOT EXISTS connection_logs
-                (username TEXT, login_time TIMESTAMP, logout_time TIMESTAMP)''')
-    # Add default admin user if not exists
-    c.execute("SELECT * FROM users WHERE username = 'rich'")
-    if c.fetchone() is None:
-        hashed_password = bcrypt.hashpw('adminpass'.encode('utf-8'), bcrypt.gensalt())
-        c.execute("INSERT INTO users (username, password, role) VALUES (?, ?, ?)",
-                  ('rich', hashed_password, ADMIN_ROLE))  # Ensure Rich is assigned ADMIN_ROLE
-    conn.commit()
-    conn.close()
+def init_users_db():
+    # Check if the database file exists
+    if not os.path.exists('users.db'):
+        conn = sqlite3.connect('users.db')
+        c = conn.cursor()
+        c.execute('''CREATE TABLE IF NOT EXISTS users
+                     (username TEXT PRIMARY KEY, password TEXT, role TEXT)''')
+        c.execute('''CREATE TABLE IF NOT EXISTS connection_logs
+                    (username TEXT, login_time TIMESTAMP, logout_time TIMESTAMP)''')
+        # Add default admin user if not exists
+        c.execute("SELECT * FROM users WHERE username = 'rich'")
+        if c.fetchone() is None:
+            hashed_password = bcrypt.hashpw('adminpass'.encode('utf-8'), bcrypt.gensalt())
+            c.execute("INSERT INTO users (username, password, role) VALUES (?, ?, ?)",
+                      ('rich', hashed_password, ADMIN_ROLE))  # Ensure Rich is assigned ADMIN_ROLE
+        conn.commit()
+        conn.close()
+    else:
+        print("Database already exists.")
 
 def auth_block():
     if 'user' not in st.session_state:
@@ -429,7 +433,7 @@ def main():
     print_users()
     st.title("Gas Station and Best Price locator")
     # Initialize the database
-    init_db()
+    init_users_db()
     # Authentication block
     auth_block()
     # Rest of your main function...
