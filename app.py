@@ -465,7 +465,18 @@ except ValueError as e:
     st.stop()
 
 def main():
-    inject_ga()
+    GA_TRACKING_ID = 'G-Z0YKHBLBKY'
+    # Inject Google Analytics tracking code into the Streamlit app
+    st.markdown(f"""
+        <script async src="https://www.googletagmanager.com/gtag/js?id={GA_TRACKING_ID}"></script>
+        <script>
+            window.dataLayer = window.dataLayer || [];
+            function gtag(){{dataLayer.push(arguments);}}
+            gtag('js', new Date());
+            gtag('config', '{GA_TRACKING_ID}');
+        </script>
+    """, unsafe_allow_html=True)
+#    inject_ga()
     st.title("Gas Station and Best Price locator")
     # Initialize the database
     init_users_db()
