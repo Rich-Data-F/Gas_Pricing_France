@@ -192,7 +192,7 @@ def logout():
     st.sidebar.success("Logged out successfully")
 
 def print_users():
-    conn = sqlite3.connect('users.db')
+    conn = sqlite3.connect('Data','users.db')
     c = conn.cursor()
     c.execute("SELECT username, role FROM users")
     users = c.fetchall()
@@ -432,10 +432,10 @@ except ValueError as e:
     st.stop()
 
 def main():
-    print_users()
     st.title("Gas Station and Best Price locator")
     # Initialize the database
     init_users_db()
+    print_users()
     # Authentication block
     auth_block()
     # Rest of your main function...
