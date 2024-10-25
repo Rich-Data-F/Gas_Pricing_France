@@ -14,6 +14,7 @@ openrouteservice
 cryptography
 python-dotenv
 sqlalchemy
+bcrypt
 #heartbeat
 
 #specific to the importation of file to Gqiery
