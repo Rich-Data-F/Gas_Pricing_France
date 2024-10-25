@@ -26,6 +26,7 @@ from functools import wraps
 import sqlite3
 import hashlib
 import pathlib
+from pathlib import Path
 from bs4 import BeautifulSoup
 import shutil
 
